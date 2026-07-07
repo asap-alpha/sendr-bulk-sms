@@ -1,0 +1,1 @@
+import{a as t}from"./utils-DTADPwVx.js";import{d as n,o as r,c,p as l,s as m,v as p}from"./index-C0e2tky8.js";const f=["for"],_=n({__name:"Label",props:{for:{},class:{}},setup(e){const s=e,o=p(()=>t("text-sm font-medium leading-none text-foreground",s.class));return(a,d)=>(r(),c("label",{for:s.for,class:m(o.value)},[l(a.$slots,"default")],10,f))}});export{_};
