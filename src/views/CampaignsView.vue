@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Search, Megaphone, Plus } from 'lucide-vue-next'
+import { Search, Megaphone, Plus, X, Clock } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
-import { useCampaigns, type CampaignStatus } from '@/stores/campaigns'
+import { useCampaigns, type Campaign, type CampaignStatus } from '@/stores/campaigns'
+import { ApiError } from '@/lib/api'
 import { formatCurrency } from '@/lib/sms'
-import { formatNumber, formatDate } from '@/lib/utils'
+import { formatNumber, formatDate, formatDateTime } from '@/lib/utils'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 
 const campaigns = useCampaigns()
 const query = ref('')
@@ -24,6 +26,38 @@ const statusVariant: Record<CampaignStatus, 'success' | 'secondary' | 'warning' 
   failed: 'destructive',
   pending: 'warning',
   rejected: 'destructive',
+  canceled: 'secondary',
+}
+
+// A not-yet-sent campaign (scheduled or in review) can be cancelled for a refund.
+function canCancel(c: Campaign) {
+  return c.status === 'scheduled' || c.status === 'pending'
+}
+
+const cancelTarget = ref<Campaign | null>(null)
+const cancelingId = ref<string | null>(null)
+const cancelError = ref('')
+
+function askCancel(c: Campaign) {
+  cancelError.value = ''
+  cancelTarget.value = c
+}
+
+async function confirmCancel() {
+  const c = cancelTarget.value
+  if (!c || cancelingId.value) return
+  cancelingId.value = c.id
+  cancelError.value = ''
+  try {
+    await campaigns.cancel(c.id)
+    await campaigns.refresh()
+    cancelTarget.value = null
+  } catch (e) {
+    cancelError.value = e instanceof ApiError ? e.message : `Couldn't cancel "${c.name}". Please try again.`
+    cancelTarget.value = null
+  } finally {
+    cancelingId.value = null
+  }
 }
 
 const filtered = computed(() =>
@@ -41,6 +75,7 @@ const filters: Array<{ key: 'all' | CampaignStatus; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'sent', label: 'Sent' },
   { key: 'sending', label: 'Sending' },
+  { key: 'scheduled', label: 'Scheduled' },
   { key: 'pending', label: 'In review' },
   { key: 'failed', label: 'Failed' },
 ]
@@ -53,6 +88,7 @@ const nonDeliveryLabel: Partial<Record<CampaignStatus, string>> = {
   pending: 'Awaiting review',
   scheduled: 'Scheduled',
   rejected: 'Rejected',
+  canceled: 'Cancelled',
 }
 
 function showsDelivery(status: CampaignStatus) {
@@ -110,6 +146,11 @@ function deliveryTitle(c: { delivered: number; failed: number; pending: number }
       </div>
     </div>
 
+    <!-- Cancel error -->
+    <p v-if="cancelError" class="mt-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      {{ cancelError }}
+    </p>
+
     <!-- Empty -->
     <div v-if="!filtered.length" class="mt-10 flex flex-col items-center gap-3 rounded-xl border border-dashed py-16 text-center">
       <Megaphone class="size-8 text-muted-foreground" />
@@ -128,6 +169,7 @@ function deliveryTitle(c: { delivered: number; failed: number; pending: number }
               <th class="px-4 py-3 font-medium">Delivered</th>
               <th class="px-4 py-3 font-medium">Cost</th>
               <th class="px-4 py-3 font-medium">Date</th>
+              <th class="px-4 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
@@ -147,16 +189,48 @@ function deliveryTitle(c: { delivered: number; failed: number; pending: number }
                   </div>
                   <span class="text-xs text-muted-foreground tabular-nums">{{ deliveredPct(c) }}%</span>
                 </div>
+                <span
+                  v-else-if="c.status === 'scheduled' && c.scheduledAt"
+                  class="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                  :title="`Sends ${formatDateTime(c.scheduledAt)}`"
+                >
+                  <Clock class="size-3" /> Sends {{ formatDateTime(c.scheduledAt) }}
+                </span>
                 <span v-else class="text-xs text-muted-foreground">{{ nonDeliveryLabel[c.status] ?? '—' }}</span>
               </td>
               <td class="px-4 py-3 tabular-nums">{{ formatCurrency(c.cost) }}</td>
               <td class="px-4 py-3 text-muted-foreground">
-                {{ c.status === 'scheduled' && c.scheduledAt ? formatDate(c.scheduledAt) : formatDate(c.createdAt) }}
+                {{ formatDate(c.createdAt) }}
+              </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  v-if="canCancel(c)"
+                  class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                  :disabled="cancelingId === c.id"
+                  @click="askCancel(c)"
+                >
+                  <X class="size-3.5" /> {{ cancelingId === c.id ? 'Cancelling…' : 'Cancel' }}
+                </button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <!-- Cancel confirmation -->
+    <ConfirmDialog
+      :open="!!cancelTarget"
+      title="Cancel campaign"
+      confirm-label="Cancel campaign"
+      loading-label="Cancelling…"
+      cancel-label="Keep it"
+      :loading="!!cancelingId"
+      @confirm="confirmCancel"
+      @close="cancelTarget = null"
+    >
+      Cancel <strong class="text-foreground">“{{ cancelTarget?.name }}”</strong>? It won't be sent, and the
+      reserved credit ({{ formatCurrency(cancelTarget?.cost ?? 0) }}) will be refunded to your wallet.
+    </ConfirmDialog>
   </div>
 </template>

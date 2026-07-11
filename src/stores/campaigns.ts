@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
  * a new campaign (backend computes cost, reserves credit, queues dispatch — or holds it for
  * review). Delivery stats come from the backend's per-campaign counters.
  */
-export type CampaignStatus = 'sent' | 'scheduled' | 'sending' | 'failed' | 'pending' | 'rejected'
+export type CampaignStatus = 'sent' | 'scheduled' | 'sending' | 'failed' | 'pending' | 'rejected' | 'canceled'
 
 export interface Campaign {
   id: string
@@ -40,6 +40,7 @@ interface SmsCampaign {
   failedCount: number
   sentCount: number
   createdAt: string
+  scheduledAt?: string | null
   rejectionReason?: string
 }
 
@@ -56,6 +57,8 @@ export interface CreateCampaignInput {
   message: string
   senderId: string
   recipients: CampaignRecipientInput[]
+  // Absolute ISO instant to send at (future). Omitted = send now.
+  scheduledAt?: string
 }
 
 function mapStatus(s: string): CampaignStatus {
@@ -63,6 +66,8 @@ function mapStatus(s: string): CampaignStatus {
     case 'completed':
     case 'partially_failed':
       return 'sent'
+    case 'scheduled':
+      return 'scheduled'
     case 'queued':
     case 'sending':
       return 'sending'
@@ -70,8 +75,10 @@ function mapStatus(s: string): CampaignStatus {
       return 'pending'
     case 'rejected':
       return 'rejected'
+    case 'canceled':
+      return 'canceled'
     default:
-      return 'failed' // failed | canceled
+      return 'failed'
   }
 }
 
@@ -92,7 +99,7 @@ function mapCampaign(c: SmsCampaign): Campaign {
     cost: c.actualCost > 0 ? c.actualCost : c.estimatedCost,
     status: mapStatus(c.status),
     createdAt: c.createdAt ? Date.parse(c.createdAt) : Date.now(),
-    scheduledAt: null,
+    scheduledAt: c.scheduledAt ? Date.parse(c.scheduledAt) : null,
     rejectionReason: c.rejectionReason || undefined,
   }
 }
@@ -110,6 +117,16 @@ export function useCampaigns() {
     const created = await api.post<SmsCampaign>('/api/sms/campaigns', input)
     const campaign = mapCampaign(created)
     state.items.unshift(campaign)
+    return campaign
+  }
+
+  // Cancel a not-yet-sent campaign (scheduled or awaiting review); the backend refunds the
+  // reserved credit. Replaces the row in place with the returned (Canceled) campaign.
+  async function cancel(id: string): Promise<Campaign> {
+    const updated = await api.post<SmsCampaign>(`/api/sms/campaigns/${encodeURIComponent(id)}/cancel`)
+    const campaign = mapCampaign(updated)
+    const i = state.items.findIndex((c) => c.id === id)
+    if (i >= 0) state.items[i] = campaign
     return campaign
   }
 
@@ -131,5 +148,6 @@ export function useCampaigns() {
     totals,
     refresh,
     create,
+    cancel,
   }
 }

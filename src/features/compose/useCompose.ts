@@ -5,7 +5,7 @@ import {
   DEFAULT_COUNTRY,
   type NormalizedPhone,
 } from '@/lib/phone'
-import { type ParsedSheet, guessPhoneColumn } from '@/lib/csv'
+import { type ParsedSheet, guessPhoneColumn, MAX_RECIPIENTS } from '@/lib/csv'
 import { analyzeMessage, campaignCost, costPerRecipient } from '@/lib/sms'
 import { containsEmoji } from '@/lib/emoji'
 import { useWallet } from '@/stores/wallet'
@@ -42,9 +42,21 @@ export function createCompose() {
   const message = ref('')
   const senderId = ref(senderIds.approved.value[0]?.name ?? '')
 
-  // Scheduling (optional).
+  // Scheduling (optional). scheduleAt is a datetime-local string (local time); we convert it
+  // to an absolute ISO instant for the API, which stores/compares in UTC.
   const scheduled = ref(false)
-  const scheduleAt = ref('') // datetime-local string
+  const scheduleAt = ref('')
+  // Valid when not scheduling, or scheduling a parseable time at least a minute out (matches
+  // the server, which treats anything nearer than that as send-now).
+  const scheduleValid = computed(
+    () => !scheduled.value || (!!scheduleAt.value && new Date(scheduleAt.value).getTime() > Date.now() + 60_000),
+  )
+  // The instant to send at, for the create payload — undefined when sending now.
+  const scheduledAtISO = computed<string | undefined>(() => {
+    if (!scheduled.value || !scheduleAt.value) return undefined
+    const d = new Date(scheduleAt.value)
+    return Number.isFinite(d.getTime()) ? d.toISOString() : undefined
+  })
 
   // Shared wallet + live pricing (app-wide singletons).
   const wallet = useWallet()
@@ -103,6 +115,10 @@ export function createCompose() {
   const validRecipients = computed(() => recipients.value.filter((r) => r.valid))
   const invalidCount = computed(() => recipients.value.length - validRecipients.value.length)
   const totalCount = computed(() => recipients.value.length)
+  // The authoritative limit: unique valid recipients (post-dedup) can't exceed the per-campaign
+  // cap. A file with duplicates that settles under the cap is fine; this only blocks a genuinely
+  // oversized list. Matches the backend's MaxRecipients check exactly.
+  const tooManyRecipients = computed(() => validRecipients.value.length > MAX_RECIPIENTS)
 
   // Preview: message rendered against the first few data rows.
   const previews = computed(() => {
@@ -160,11 +176,12 @@ export function createCompose() {
   const canSend = computed(
     () =>
       validRecipients.value.length > 0 &&
+      !tooManyRecipients.value &&
       message.value.trim().length > 0 &&
       !messageHasEmoji.value &&
       hasApprovedSender.value &&
       sufficient.value &&
-      (!scheduled.value || !!scheduleAt.value),
+      scheduleValid.value,
   )
 
   // ── Stepper ────────────────────────────────────────────────────────────
@@ -230,6 +247,8 @@ export function createCompose() {
     senderId,
     scheduled,
     scheduleAt,
+    scheduleValid,
+    scheduledAtISO,
     wallet,
     // actions
     addManual,
@@ -243,6 +262,7 @@ export function createCompose() {
     validRecipients,
     invalidCount,
     totalCount,
+    tooManyRecipients,
     previews,
     templateInfo,
     usesMergeData,

@@ -10,6 +10,7 @@ import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Modal from '@/components/ui/Modal.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 
 const store = useSenderIds()
 
@@ -194,25 +195,23 @@ async function submit() {
     </Modal>
 
     <!-- Remove confirmation -->
-    <Modal :open="!!confirmTarget" title="Remove sender ID" @close="confirmTarget = null">
-      <div class="px-5 py-4">
-        <p class="text-sm text-muted-foreground">
-          <template v-if="confirmTarget?.status === 'approved'">
-            Remove <strong class="text-foreground">“{{ confirmTarget?.name }}”</strong>? You won't be able to send
-            campaigns from it anymore.
-          </template>
-          <template v-else>
-            Remove the <strong class="text-foreground">“{{ confirmTarget?.name }}”</strong> request?
-          </template>
-        </p>
-        <div class="mt-5 flex justify-end gap-2 border-t pt-4">
-          <Button variant="ghost" @click="confirmTarget = null">Cancel</Button>
-          <Button variant="destructive" :disabled="!!removingId" @click="confirmRemove">
-            <Trash2 class="size-4" />
-            {{ removingId ? 'Removing…' : 'Remove' }}
-          </Button>
-        </div>
-      </div>
-    </Modal>
+    <ConfirmDialog
+      :open="!!confirmTarget"
+      title="Remove sender ID"
+      confirm-label="Remove"
+      loading-label="Removing…"
+      cancel-label="Keep it"
+      :loading="!!removingId"
+      @confirm="confirmRemove"
+      @close="confirmTarget = null"
+    >
+      <template v-if="confirmTarget?.status === 'approved'">
+        Remove <strong class="text-foreground">“{{ confirmTarget?.name }}”</strong>? You won't be able to send
+        campaigns from it anymore.
+      </template>
+      <template v-else>
+        Remove the <strong class="text-foreground">“{{ confirmTarget?.name }}”</strong> request?
+      </template>
+    </ConfirmDialog>
   </div>
 </template>
