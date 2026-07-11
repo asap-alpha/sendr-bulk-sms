@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { Send, CheckCircle2, XCircle, Wallet } from 'lucide-vue-next'
 import { useCampaigns } from '@/stores/campaigns'
 import { formatCurrency } from '@/lib/sms'
@@ -8,6 +8,10 @@ import Badge from '@/components/ui/Badge.vue'
 
 const campaigns = useCampaigns()
 const t = campaigns.totals
+
+onMounted(() => {
+  campaigns.refresh().catch(() => {})
+})
 
 const deliveryRate = computed(() => (t.value.recipients ? Math.round((t.value.delivered / t.value.recipients) * 100) : 0))
 const failRate = computed(() => (t.value.recipients ? Math.round((t.value.failed / t.value.recipients) * 100) : 0))

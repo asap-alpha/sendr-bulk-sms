@@ -1,46 +1,77 @@
 import { computed, reactive } from 'vue'
+import { api } from '@/lib/api'
 
 /**
- * Mock wallet (module singleton). Holds the SMS-credit balance and a ledger of
- * transactions. Top-ups credit it; sending a campaign debits it. Wire to the
- * payments/credit backend at the `credit`/`debit` seam.
+ * SMS-credit wallet (module singleton), backed by the backend `api/sms/billing` endpoints.
+ * `balance` is authoritative from the wallet doc; `transactions` are the credit ledger.
+ * Call `refresh()` after login and after a successful top-up.
  */
 export interface Transaction {
   id: string
   type: 'topup' | 'send'
   label: string
-  amount: number // positive for topup, negative for send
+  amount: number // positive for credit (top-up), negative for debit (send)
   at: number // epoch ms
 }
 
-let counter = 1000
-function nextId() {
-  counter += 1
-  return `txn_${counter}`
+// Backend shapes (camelCase JSON).
+interface WalletDoc {
+  balance: number
+  currency: string
+  totalPurchased: number
+  totalSpent: number
+}
+interface LedgerEntry {
+  id: string
+  type: string // "purchase" | "campaign_debit" | "adjustment" | "test_credit"
+  amount: number // signed
+  balanceAfter: number
+  reference: string
+  note: string
+  createdAt: string // ISO 8601
 }
 
-const state = reactive<{ balance: number; transactions: Transaction[] }>({
-  balance: 500,
-  transactions: [
-    { id: 'txn_1000', type: 'topup', label: 'Welcome bonus', amount: 500, at: Date.now() - 86400000 * 3 },
-  ],
+const LEDGER_LABELS: Record<string, string> = {
+  purchase: 'Top-up',
+  campaign_debit: 'Campaign send',
+  adjustment: 'Adjustment',
+  test_credit: 'Test credit',
+}
+
+function mapEntry(e: LedgerEntry): Transaction {
+  return {
+    id: e.id,
+    type: e.amount >= 0 ? 'topup' : 'send',
+    label: e.note?.trim() || LEDGER_LABELS[e.type] || e.type,
+    amount: e.amount,
+    at: e.createdAt ? Date.parse(e.createdAt) : Date.now(),
+  }
+}
+
+const state = reactive<{ balance: number; currency: string; transactions: Transaction[]; loaded: boolean }>({
+  balance: 0,
+  currency: 'GHS',
+  transactions: [],
+  loaded: false,
 })
 
 export function useWallet() {
-  function credit(amount: number, label: string) {
-    state.balance = Math.round((state.balance + amount) * 100) / 100
-    state.transactions.unshift({ id: nextId(), type: 'topup', label, amount, at: Date.now() })
-  }
-
-  function debit(amount: number, label: string) {
-    state.balance = Math.max(0, Math.round((state.balance - amount) * 100) / 100)
-    state.transactions.unshift({ id: nextId(), type: 'send', label, amount: -amount, at: Date.now() })
+  async function refresh() {
+    const [wallet, ledger] = await Promise.all([
+      api.get<WalletDoc>('/api/sms/billing/wallet'),
+      api.get<LedgerEntry[]>('/api/sms/billing/ledger'),
+    ])
+    state.balance = wallet?.balance ?? 0
+    state.currency = wallet?.currency ?? 'GHS'
+    state.transactions = (ledger ?? []).map(mapEntry)
+    state.loaded = true
   }
 
   return {
     balance: computed(() => state.balance),
+    currency: computed(() => state.currency),
     transactions: computed(() => state.transactions),
-    credit,
-    debit,
+    loaded: computed(() => state.loaded),
+    refresh,
   }
 }

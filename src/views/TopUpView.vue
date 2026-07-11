@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Check, ArrowUpRight, ArrowDownLeft } from 'lucide-vue-next'
 import { useWallet } from '@/stores/wallet'
-import { CURRENCY, formatCurrency, SMS_RATE } from '@/lib/sms'
+import { useAuth } from '@/stores/auth'
+import { usePricing } from '@/stores/pricing'
+import { api, ApiError } from '@/lib/api'
+import { CURRENCY, formatCurrency } from '@/lib/sms'
 import { formatNumber, timeAgo } from '@/lib/utils'
 import { normalizePhone } from '@/lib/phone'
 import Button from '@/components/ui/Button.vue'
@@ -10,13 +13,25 @@ import Input from '@/components/ui/Input.vue'
 import Badge from '@/components/ui/Badge.vue'
 
 const wallet = useWallet()
+const { user } = useAuth()
+const pricing = usePricing()
 
-// Mobile money is the only payment method — one card per network.
+// Live per-segment rate for this platform (Sendr's may differ from tailoredflow's);
+// falls back to the store default until /status resolves.
+const rate = computed(() => pricing.pricePerPart.value)
+
+onMounted(() => {
+  wallet.refresh().catch(() => {})
+  pricing.refresh().catch(() => {})
+})
+
+// Mobile money is the only payment method — one card per network. `channel` is the
+// Hubtel receive-money channel the backend expects.
 type NetworkId = 'mtn' | 'telecel' | 'at'
-const networks: Array<{ id: NetworkId; name: string; short: string; classes: string }> = [
-  { id: 'mtn', name: 'MTN MoMo', short: 'MTN', classes: 'bg-[#FFCC00] text-black' },
-  { id: 'telecel', name: 'Telecel Cash', short: 'TEL', classes: 'bg-[#E4002B] text-white' },
-  { id: 'at', name: 'AT Money', short: 'AT', classes: 'bg-[#003DA5] text-white' },
+const networks: Array<{ id: NetworkId; name: string; short: string; classes: string; channel: string }> = [
+  { id: 'mtn', name: 'MTN MoMo', short: 'MTN', classes: 'bg-[#FFCC00] text-black', channel: 'mtn-gh' },
+  { id: 'telecel', name: 'Telecel Cash', short: 'TEL', classes: 'bg-[#E4002B] text-white', channel: 'vodafone-gh' },
+  { id: 'at', name: 'AT Money', short: 'AT', classes: 'bg-[#003DA5] text-white', channel: 'tigo-gh' },
 ]
 
 const packages = [50, 100, 250, 500, 1000]
@@ -26,6 +41,8 @@ const network = ref<NetworkId>('mtn')
 const momoNumber = ref('')
 const processing = ref(false)
 const done = ref<number | null>(null)
+const error = ref('')
+const statusHint = ref('')
 
 const amount = computed(() => {
   if (custom.value.trim()) {
@@ -35,8 +52,8 @@ const amount = computed(() => {
   return selected.value ?? 0
 })
 
-// Rough guide: how many single-segment SMS this buys.
-const estSms = computed(() => Math.floor(amount.value / SMS_RATE))
+// Rough guide: how many single-segment SMS this buys, at the live per-segment rate.
+const estSms = computed(() => (rate.value > 0 ? Math.floor(amount.value / rate.value) : 0))
 
 const momoValid = computed(() => normalizePhone(momoNumber.value).valid)
 const activeNetwork = computed(() => networks.find((n) => n.id === network.value)!)
@@ -47,17 +64,69 @@ function pick(v: number) {
   custom.value = ''
 }
 
+interface InitiateResult { success: boolean; clientReference: string; status: string; message: string }
+interface StatusResult { status: string }
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+// Poll the top-up status until it settles or we give up. MoMo needs the payer to approve
+// a prompt, so we wait up to ~90s; the backend reconciles against Hubtel if the callback
+// is slow. Returns the final status string.
+async function pollStatus(clientReference: string): Promise<string> {
+  for (let i = 0; i < 30; i++) {
+    await delay(3000)
+    try {
+      const s = await api.get<StatusResult>(`/api/sms/billing/purchase/${encodeURIComponent(clientReference)}`)
+      const status = (s?.status ?? '').toLowerCase()
+      if (status === 'paid') return 'paid'
+      if (status === 'failed' || status === 'refunded' || status === 'amountmismatch') return status
+    } catch {
+      // Transient — keep polling.
+    }
+  }
+  return 'pending'
+}
+
 async function pay() {
   if (!canPay.value) return
   processing.value = true
-  await new Promise((r) => setTimeout(r, 1000))
-  wallet.credit(amount.value, `${activeNetwork.value.name} top-up`)
-  done.value = amount.value
-  processing.value = false
+  error.value = ''
+  statusHint.value = 'Sending a prompt to your phone…'
+  try {
+    const init = await api.post<InitiateResult>('/api/sms/billing/purchase', {
+      amount: amount.value,
+      customerName: user.value?.name ?? 'Sendr user',
+      customerMsisdn: momoNumber.value.trim(),
+      channel: activeNetwork.value.channel,
+      customerEmail: user.value?.email ?? undefined,
+    })
+    if (!init?.success) {
+      error.value = init?.message || 'Could not start the top-up. Try again.'
+      return
+    }
+
+    statusHint.value = 'Approve the prompt on your phone to complete the payment…'
+    const final = await pollStatus(init.clientReference)
+
+    if (final === 'paid') {
+      await wallet.refresh()
+      done.value = amount.value
+    } else if (final === 'pending') {
+      error.value = 'Still waiting for confirmation. If you approved the prompt, your balance will update shortly.'
+    } else {
+      error.value = 'The payment was not completed. No credit was added.'
+    }
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : 'Something went wrong. Please try again.'
+  } finally {
+    processing.value = false
+    statusHint.value = ''
+  }
 }
 
 function again() {
   done.value = null
+  error.value = ''
 }
 </script>
 
@@ -82,7 +151,7 @@ function again() {
               @click="pick(p)"
             >
               <div class="font-semibold">{{ p }}</div>
-              <div class="text-xs text-muted-foreground">{{ formatNumber(Math.floor(p / SMS_RATE)) }} SMS</div>
+              <div class="text-xs text-muted-foreground">{{ formatNumber(rate > 0 ? Math.floor(p / rate) : 0) }} SMS</div>
             </button>
           </div>
 
@@ -117,6 +186,9 @@ function again() {
             <p v-if="momoNumber && !momoValid" class="text-xs text-destructive">Enter a valid Ghana mobile number.</p>
             <p v-else class="text-xs text-muted-foreground">You'll get a prompt on this number to approve the payment.</p>
           </div>
+
+          <p v-if="statusHint && !error" class="mt-4 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">{{ statusHint }}</p>
+          <p v-if="error" class="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ error }}</p>
 
           <div class="mt-6 flex items-center justify-between border-t pt-4">
             <div>

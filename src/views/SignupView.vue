@@ -8,6 +8,7 @@ import Input from '@/components/ui/Input.vue'
 import PasswordInput from '@/components/ui/PasswordInput.vue'
 import Label from '@/components/ui/Label.vue'
 import { useAuth } from '@/stores/auth'
+import { authErrorMessage } from '@/lib/firebase'
 
 const router = useRouter()
 const { signup, loginWithGoogle } = useAuth()
@@ -29,6 +30,8 @@ async function submit() {
   try {
     await signup(name.value.trim(), email.value.trim(), password.value)
     router.push({ name: 'compose' })
+  } catch (e) {
+    error.value = authErrorMessage(e)
   } finally {
     loading.value = false
   }
@@ -40,6 +43,8 @@ async function google() {
   try {
     await loginWithGoogle()
     router.push({ name: 'compose' })
+  } catch (e) {
+    error.value = authErrorMessage(e)
   } finally {
     googleLoading.value = false
   }
@@ -49,7 +54,7 @@ async function google() {
 <template>
   <AuthShell>
     <h2 class="text-2xl font-semibold tracking-tight">Create your account</h2>
-    <p class="mt-1 text-sm text-muted-foreground">Start with 500 free demo credits.</p>
+    <p class="mt-1 text-sm text-muted-foreground">Send your first bulk SMS campaign in minutes.</p>
 
     <form class="mt-6 space-y-4" @submit.prevent="submit">
       <div class="grid gap-1.5">

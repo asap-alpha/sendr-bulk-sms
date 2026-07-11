@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Search, Megaphone, Plus } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import { useCampaigns, type CampaignStatus } from '@/stores/campaigns'
@@ -13,11 +13,17 @@ const campaigns = useCampaigns()
 const query = ref('')
 const filter = ref<'all' | CampaignStatus>('all')
 
+onMounted(() => {
+  campaigns.refresh().catch(() => {})
+})
+
 const statusVariant: Record<CampaignStatus, 'success' | 'secondary' | 'warning' | 'destructive'> = {
   sent: 'success',
   scheduled: 'secondary',
   sending: 'warning',
   failed: 'destructive',
+  pending: 'warning',
+  rejected: 'destructive',
 }
 
 const filtered = computed(() =>
@@ -34,12 +40,42 @@ const filtered = computed(() =>
 const filters: Array<{ key: 'all' | CampaignStatus; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'sent', label: 'Sent' },
-  { key: 'scheduled', label: 'Scheduled' },
+  { key: 'sending', label: 'Sending' },
+  { key: 'pending', label: 'In review' },
   { key: 'failed', label: 'Failed' },
 ]
 
+// A delivery rate only makes sense once messages have actually gone out.
+// For in-review / scheduled / rejected, there's nothing delivered yet — showing
+// a 0% bar would wrongly read as a failure, so we show a label instead.
+const DELIVERY_STATES = new Set<CampaignStatus>(['sent', 'sending', 'failed'])
+const nonDeliveryLabel: Partial<Record<CampaignStatus, string>> = {
+  pending: 'Awaiting review',
+  scheduled: 'Scheduled',
+  rejected: 'Rejected',
+}
+
+function showsDelivery(status: CampaignStatus) {
+  return DELIVERY_STATES.has(status)
+}
+
 function deliveredPct(c: { delivered: number; recipients: number }) {
-  return c.recipients ? Math.round((c.delivered / c.recipients) * 100) : 0
+  if (!c.recipients) return 0
+  const pct = (c.delivered / c.recipients) * 100
+  // Never round up to a false 100% while any message is still undelivered.
+  if (pct >= 99.5 && c.delivered < c.recipients) return 99
+  return Math.round(pct)
+}
+
+// Colour by delivery health so a poor rate reads as a problem, not a success.
+function deliveryColor(pct: number) {
+  if (pct >= 90) return 'bg-success'
+  if (pct >= 50) return 'bg-warning'
+  return 'bg-destructive'
+}
+
+function deliveryTitle(c: { delivered: number; failed: number; pending: number }) {
+  return `${formatNumber(c.delivered)} delivered · ${formatNumber(c.failed)} failed · ${formatNumber(c.pending)} pending`
 }
 </script>
 
@@ -105,12 +141,13 @@ function deliveredPct(c: { delivered: number; recipients: number }) {
               </td>
               <td class="px-4 py-3 tabular-nums">{{ formatNumber(c.recipients) }}</td>
               <td class="px-4 py-3">
-                <div class="flex items-center gap-2">
+                <div v-if="showsDelivery(c.status)" class="flex items-center gap-2" :title="deliveryTitle(c)">
                   <div class="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                    <div class="h-full rounded-full bg-success" :style="{ width: deliveredPct(c) + '%' }" />
+                    <div class="h-full rounded-full" :class="deliveryColor(deliveredPct(c))" :style="{ width: deliveredPct(c) + '%' }" />
                   </div>
                   <span class="text-xs text-muted-foreground tabular-nums">{{ deliveredPct(c) }}%</span>
                 </div>
+                <span v-else class="text-xs text-muted-foreground">{{ nonDeliveryLabel[c.status] ?? '—' }}</span>
               </td>
               <td class="px-4 py-3 tabular-nums">{{ formatCurrency(c.cost) }}</td>
               <td class="px-4 py-3 text-muted-foreground">

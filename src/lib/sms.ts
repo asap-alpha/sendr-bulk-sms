@@ -95,20 +95,21 @@ export function analyzeMessage(text: string): SegmentInfo {
 }
 
 // ── Pricing ────────────────────────────────────────────────────────────────
-// Kept here so it's trivial to swap for a real rate card from the backend.
-export const SMS_RATE = 0.035 // credits (≈ GHS) per segment
+// SMS_RATE is only a fallback default; the live per-part price comes from the
+// backend (see stores/pricing) and is passed into the cost helpers.
+export const SMS_RATE = 0.05 // credits (≈ GHS) per segment — backend default
 export const CURRENCY = 'GHS'
 
 export function formatCurrency(amount: number): string {
   return `${CURRENCY} ${amount.toFixed(2)}`
 }
 
-/** Cost of one message to one recipient. */
-export function costPerRecipient(segments: number): number {
-  return segments * SMS_RATE
+/** Cost of one message to one recipient at a given per-part rate. */
+export function costPerRecipient(segments: number, rate: number = SMS_RATE): number {
+  return segments * rate
 }
 
-/** Total campaign cost. */
-export function campaignCost(recipients: number, segments: number): number {
-  return recipients * costPerRecipient(segments)
+/** Total campaign cost at a given per-part rate. */
+export function campaignCost(recipients: number, segments: number, rate: number = SMS_RATE): number {
+  return recipients * costPerRecipient(segments, rate)
 }

@@ -5,66 +5,70 @@ import { ComposeKey } from './useCompose'
 import { formatCurrency } from '@/lib/sms'
 import { formatNumber } from '@/lib/utils'
 import { useCampaigns } from '@/stores/campaigns'
+import { ApiError } from '@/lib/api'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 
 const store = inject(ComposeKey)!
 const campaigns = useCampaigns()
 const sending = ref(false)
-const sent = ref<{ recipients: number; scheduled: boolean } | null>(null)
+const sent = ref<{ recipients: number; review: boolean } | null>(null)
+const error = ref('')
 
 const remaining = computed(() => store.wallet.balance.value - store.totalCost.value)
 
 async function send() {
   if (!store.canSend.value) return
   sending.value = true
-  // Mock the network round-trip; the real endpoint gets wired here later.
-  await new Promise((r) => setTimeout(r, 900))
-
-  const recipients = store.validRecipients.value.length
-  const scheduled = store.scheduled.value
-
-  store.wallet.debit(store.totalCost.value, `Campaign to ${formatNumber(recipients)} recipients`)
-
-  // Record the campaign so it shows up in Campaigns & Reports.
-  const firstLine = store.message.value.trim().split('\n')[0].slice(0, 40) || 'Untitled campaign'
-  campaigns.add({
-    name: firstLine,
-    senderId: store.senderId.value || 'Sendr',
-    message: store.message.value,
-    recipients,
-    delivered: scheduled ? 0 : Math.round(recipients * 0.97),
-    failed: scheduled ? 0 : Math.round(recipients * 0.01),
-    pending: scheduled ? recipients : Math.round(recipients * 0.02),
-    segments: store.billedSegments.value,
-    cost: store.totalCost.value,
-    status: scheduled ? 'scheduled' : 'sent',
-    scheduledAt: scheduled && store.scheduleAt.value ? new Date(store.scheduleAt.value).getTime() : null,
-  })
-
-  sent.value = { recipients, scheduled }
-  sending.value = false
+  error.value = ''
+  try {
+    const recipients = store.buildRecipientsPayload()
+    const firstLine = store.message.value.trim().split('\n')[0].slice(0, 40) || 'Untitled campaign'
+    const campaign = await campaigns.create({
+      name: firstLine,
+      mode: store.sendMode.value,
+      message: store.message.value,
+      senderId: store.senderId.value,
+      recipients,
+    })
+    // Balance was debited server-side; pull the fresh figure.
+    await store.wallet.refresh()
+    sent.value = { recipients: campaign.recipients || recipients.length, review: campaign.status === 'pending' }
+    store.completed.value = true
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : 'Could not send the campaign. Please try again.'
+  } finally {
+    sending.value = false
+  }
 }
 
 function reset() {
   sent.value = null
+  error.value = ''
   store.message.value = ''
   store.clearManual()
   store.clearSheet()
+  store.completed.value = false
+  store.goToStep(1)
 }
 </script>
 
 <template>
-  <div class="sticky top-6 space-y-4">
+  <div class="space-y-4">
     <!-- Success state -->
     <div v-if="sent" class="rounded-xl border bg-card p-6 text-center shadow-sm">
       <CheckCircle2 class="mx-auto size-10 text-success" />
       <h3 class="mt-3 text-lg font-semibold">
-        {{ sent.scheduled ? 'Campaign scheduled' : 'Messages queued' }}
+        {{ sent.review ? 'Submitted for review' : 'Messages queued' }}
       </h3>
       <p class="mt-1 text-sm text-muted-foreground">
-        {{ formatNumber(sent.recipients) }} recipient{{ sent.recipients === 1 ? '' : 's' }}
-        {{ sent.scheduled ? 'will receive your message at the scheduled time.' : 'are being processed.' }}
+        <template v-if="sent.review">
+          Your campaign to {{ formatNumber(sent.recipients) }} recipient{{ sent.recipients === 1 ? '' : 's' }}
+          is pending approval — you'll be notified once it's reviewed.
+        </template>
+        <template v-else>
+          {{ formatNumber(sent.recipients) }} recipient{{ sent.recipients === 1 ? '' : 's' }} are being processed.
+        </template>
       </p>
       <Button class="mt-4 w-full" @click="reset">Compose another</Button>
     </div>
@@ -118,26 +122,20 @@ function reset() {
         </div>
       </div>
 
-      <!-- Scheduling -->
+      <!-- Scheduling (coming soon) -->
       <div class="border-t px-5 py-4">
-        <label class="flex cursor-pointer items-center justify-between">
+        <label class="flex items-center justify-between opacity-60">
           <span class="flex items-center gap-2 text-sm font-medium">
             <CalendarClock class="size-4" /> Schedule for later
           </span>
-          <input v-model="store.scheduled.value" type="checkbox" class="size-4 accent-[hsl(var(--primary))]" />
+          <Badge variant="muted">Coming soon</Badge>
         </label>
-        <input
-          v-if="store.scheduled.value"
-          v-model="store.scheduleAt.value"
-          type="datetime-local"
-          class="mt-3 h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
       </div>
 
       <div class="px-5 pb-5">
+        <p v-if="error" class="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{{ error }}</p>
         <Button class="w-full" size="lg" :disabled="!store.canSend.value || sending" @click="send">
           <template v-if="sending">Sending…</template>
-          <template v-else-if="store.scheduled.value"><CalendarClock /> Schedule campaign</template>
           <template v-else><Send /> Send now</template>
         </Button>
         <p v-if="!store.canSend.value && !sending" class="mt-2 text-center text-xs text-muted-foreground">

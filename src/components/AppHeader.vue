@@ -29,9 +29,9 @@ function initials(name: string) {
     .toUpperCase()
 }
 
-function signOut() {
+async function signOut() {
   menuOpen.value = false
-  logout()
+  await logout()
   router.push({ name: 'login' })
 }
 </script>

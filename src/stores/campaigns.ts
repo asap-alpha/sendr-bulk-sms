@@ -1,11 +1,12 @@
 import { computed, reactive } from 'vue'
+import { api } from '@/lib/api'
 
 /**
- * Mock campaigns store (module singleton). Seeded with a few examples so the
- * Campaigns and Reports screens have data; real sends from the compose screen
- * get prepended via `add`. Delivery stats are faked for now.
+ * Campaigns store, backed by api/sms/campaigns. `refresh()` loads the list; `create()` sends
+ * a new campaign (backend computes cost, reserves credit, queues dispatch — or holds it for
+ * review). Delivery stats come from the backend's per-campaign counters.
  */
-export type CampaignStatus = 'sent' | 'scheduled' | 'sending' | 'failed'
+export type CampaignStatus = 'sent' | 'scheduled' | 'sending' | 'failed' | 'pending' | 'rejected'
 
 export interface Campaign {
   id: string
@@ -21,70 +22,93 @@ export interface Campaign {
   status: CampaignStatus
   createdAt: number
   scheduledAt: number | null
+  rejectionReason?: string
 }
 
-let counter = 5000
-function nextId() {
-  counter += 1
-  return `cmp_${counter}`
+// Backend SmsCampaign (camelCase JSON).
+interface SmsCampaign {
+  id: string
+  name: string
+  senderId: string
+  messageTemplate: string
+  status: string
+  totalRecipients: number
+  totalParts: number
+  estimatedCost: number
+  actualCost: number
+  deliveredCount: number
+  failedCount: number
+  sentCount: number
+  createdAt: string
+  rejectionReason?: string
 }
 
-const now = Date.now()
-const day = 86400000
+// One create-campaign recipient (merge carries per-row Data).
+export interface CampaignRecipientInput {
+  phone: string
+  name?: string
+  data?: Record<string, string>
+}
 
-const state = reactive<{ items: Campaign[] }>({
-  items: [
-    {
-      id: 'cmp_5000',
-      name: 'June payday reminder',
-      senderId: 'Sendr',
-      message: 'Hi {{name}}, your salary advance is due on the 28th. Reply HELP for options.',
-      recipients: 1240,
-      delivered: 1198,
-      failed: 21,
-      pending: 21,
-      segments: 1,
-      cost: 43.4,
-      status: 'sent',
-      createdAt: now - day * 2,
-      scheduledAt: null,
-    },
-    {
-      id: 'cmp_5001',
-      name: 'ECG outage notice',
-      senderId: 'ECG',
-      message: 'Planned maintenance in your area on Saturday 6am–10am. Sorry for the inconvenience.',
-      recipients: 8450,
-      delivered: 8102,
-      failed: 348,
-      pending: 0,
-      segments: 1,
-      cost: 295.75,
-      status: 'sent',
-      createdAt: now - day * 5,
-      scheduledAt: null,
-    },
-    {
-      id: 'cmp_5002',
-      name: 'Weekend promo blast',
-      senderId: 'ShopGH',
-      message: 'Flash sale! 20% off everything this weekend only. Use code {{code}}. Shop now 🛍️',
-      recipients: 3200,
-      delivered: 0,
-      failed: 0,
-      pending: 3200,
-      segments: 2,
-      cost: 224,
-      status: 'scheduled',
-      createdAt: now - day * 1,
-      scheduledAt: now + day * 2,
-    },
-  ],
-})
+export interface CreateCampaignInput {
+  name?: string
+  mode: 'simple' | 'personalized' | 'merge'
+  message: string
+  senderId: string
+  recipients: CampaignRecipientInput[]
+}
+
+function mapStatus(s: string): CampaignStatus {
+  switch (s) {
+    case 'completed':
+    case 'partially_failed':
+      return 'sent'
+    case 'queued':
+    case 'sending':
+      return 'sending'
+    case 'pending_approval':
+      return 'pending'
+    case 'rejected':
+      return 'rejected'
+    default:
+      return 'failed' // failed | canceled
+  }
+}
+
+function mapCampaign(c: SmsCampaign): Campaign {
+  const recipients = c.totalRecipients ?? 0
+  const delivered = c.deliveredCount ?? 0
+  const failed = c.failedCount ?? 0
+  return {
+    id: c.id,
+    name: c.name || 'Untitled campaign',
+    senderId: c.senderId,
+    message: c.messageTemplate,
+    recipients,
+    delivered,
+    failed,
+    pending: Math.max(0, recipients - delivered - failed),
+    segments: recipients > 0 ? Math.max(1, Math.round((c.totalParts ?? 0) / recipients)) : (c.totalParts ?? 0),
+    cost: c.actualCost > 0 ? c.actualCost : c.estimatedCost,
+    status: mapStatus(c.status),
+    createdAt: c.createdAt ? Date.parse(c.createdAt) : Date.now(),
+    scheduledAt: null,
+    rejectionReason: c.rejectionReason || undefined,
+  }
+}
+
+const state = reactive<{ items: Campaign[]; loaded: boolean }>({ items: [], loaded: false })
 
 export function useCampaigns() {
-  function add(c: Omit<Campaign, 'id' | 'createdAt'>): Campaign {
-    const campaign: Campaign = { ...c, id: nextId(), createdAt: Date.now() }
+  async function refresh() {
+    const list = await api.get<SmsCampaign[]>('/api/sms/campaigns')
+    state.items = (list ?? []).map(mapCampaign)
+    state.loaded = true
+  }
+
+  async function create(input: CreateCampaignInput): Promise<Campaign> {
+    const created = await api.post<SmsCampaign>('/api/sms/campaigns', input)
+    const campaign = mapCampaign(created)
     state.items.unshift(campaign)
     return campaign
   }
@@ -103,7 +127,9 @@ export function useCampaigns() {
 
   return {
     items: computed(() => state.items),
+    loaded: computed(() => state.loaded),
     totals,
-    add,
+    refresh,
+    create,
   }
 }
