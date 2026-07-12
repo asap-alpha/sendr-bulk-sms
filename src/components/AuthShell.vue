@@ -31,7 +31,7 @@ const points = [
           </li>
         </ul>
       </div>
-      <p class="text-sm text-primary-foreground/70">© {{ new Date().getFullYear() }} Sendr Bulk SMS. Demo environment.</p>
+      <p class="text-sm text-primary-foreground/70">© {{ new Date().getFullYear() }} Sendr Bulk SMS.</p>
       <div class="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-white/10 blur-2xl" />
       <div class="pointer-events-none absolute -bottom-16 right-10 size-52 rounded-full bg-white/10 blur-2xl" />
     </div>

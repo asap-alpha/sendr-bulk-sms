@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, provide } from 'vue'
 import AppHeader from '@/components/AppHeader.vue'
+import VerificationBanner from '@/components/VerificationBanner.vue'
 import { ComposeKey, createCompose } from '@/features/compose/useCompose'
 import { useWallet } from '@/stores/wallet'
 import { useSenderIds } from '@/stores/senderIds'
@@ -25,6 +26,7 @@ onMounted(() => {
 <template>
   <div class="min-h-screen bg-background">
     <AppHeader />
+    <VerificationBanner />
     <main>
       <RouterView />
     </main>

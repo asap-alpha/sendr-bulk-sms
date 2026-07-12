@@ -9,7 +9,6 @@ import {
   Wallet,
   ArrowRight,
   Check,
-  Sparkles,
 } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
@@ -65,12 +64,6 @@ const steps = [
 
 <template>
   <div class="min-h-screen bg-background">
-    <!-- Demo banner -->
-    <div class="flex items-center justify-center gap-2 bg-primary/10 px-4 py-2 text-center text-xs text-primary sm:text-sm">
-      <Sparkles class="size-3.5 shrink-0" />
-      <span><span class="font-semibold">Demo environment</span> — explore Sendr Bulk SMS with sample data. Sign up free to try it.</span>
-    </div>
-
     <!-- Nav -->
     <header class="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
@@ -186,7 +179,7 @@ const steps = [
       <div class="mx-auto max-w-lg rounded-2xl border bg-card p-8 text-center shadow-sm">
         <h2 class="text-3xl font-semibold tracking-tight">Simple, prepaid pricing</h2>
         <div class="mt-6 flex items-baseline justify-center gap-1">
-          <span class="text-5xl font-semibold">{{ CURRENCY }} {{ SMS_RATE.toFixed(3) }}</span>
+          <span class="text-5xl font-semibold">{{ CURRENCY }} {{ SMS_RATE.toFixed(2) }}</span>
           <span class="text-muted-foreground">/ SMS segment</span>
         </div>
         <ul class="mx-auto mt-6 max-w-xs space-y-2 text-left text-sm">

@@ -26,6 +26,13 @@ export const auth = getAuth(firebaseApp)
 export const googleProvider = new GoogleAuthProvider()
 
 /** Map a Firebase Auth error to a short, user-facing message. */
+// True when a signup failed because the email is already registered (shared Cheqam
+// identity — the account may have been created on any of our products). Lets the
+// signup screen show a "sign in instead" banner rather than a generic error.
+export function isEmailInUse(e: unknown): boolean {
+  return (e as { code?: string })?.code === 'auth/email-already-in-use'
+}
+
 export function authErrorMessage(e: unknown): string {
   const code = (e as { code?: string })?.code ?? ''
   switch (code) {

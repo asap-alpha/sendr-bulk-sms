@@ -23,6 +23,7 @@ export interface User {
   name: string
   email: string
   provider: 'password' | 'google'
+  emailVerified: boolean
 }
 
 // Shape of the backend UserProfileResponse fields we use.
@@ -71,6 +72,7 @@ async function ensureProfile(fbUser: FirebaseUser, nameOverride?: string): Promi
     name: profile.name || profile.businessName || name,
     email: profile.email || fbUser.email || '',
     provider: providerOf(fbUser),
+    emailVerified: fbUser.emailVerified,
   }
 }
 
@@ -120,7 +122,10 @@ export function useAuth() {
       const cred = await createUserWithEmailAndPassword(auth, email, password)
       await updateProfile(cred.user, { displayName: name })
       // Pass the typed name explicitly — register-sendr is idempotent, so the first
-      // call must carry it (a later call won't rename the account).
+      // call must carry it (a later call won't rename the account). register-sendr also
+      // triggers Sendr's own (Resend-branded) verification email on the backend, so we
+      // deliberately don't call Firebase's sendEmailVerification here — that would send a
+      // second, generic email from the shared Firebase template.
       state.user = await ensureProfile(cred.user, name)
     } finally {
       bootstrapping = false
@@ -142,13 +147,32 @@ export function useAuth() {
     state.user = null
   }
 
+  // Ask the backend to re-send the Sendr verification email (no-op server-side if already
+  // verified). Throws on a network/API error so the caller can surface it.
+  async function resendVerification() {
+    await api.post('/api/users/resend-verification')
+  }
+
+  // Re-check verification with Firebase (after the user clicks the link in another tab) and
+  // sync it into our user state. Returns the fresh verified flag.
+  async function refreshVerification(): Promise<boolean> {
+    const fb = auth.currentUser
+    if (!fb) return false
+    await fb.reload()
+    if (state.user) state.user.emailVerified = fb.emailVerified
+    return fb.emailVerified
+  }
+
   return {
     user: computed(() => state.user),
     isAuthenticated,
     ready: computed(() => state.ready),
+    emailVerified: computed(() => state.user?.emailVerified ?? false),
     login,
     signup,
     loginWithGoogle,
     logout,
+    resendVerification,
+    refreshVerification,
   }
 }

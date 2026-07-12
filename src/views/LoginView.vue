@@ -14,7 +14,7 @@ const route = useRoute()
 const router = useRouter()
 const { login, loginWithGoogle } = useAuth()
 
-const email = ref('')
+const email = ref((route.query.email as string) ?? '')
 const password = ref('')
 const loading = ref(false)
 const googleLoading = ref(false)
