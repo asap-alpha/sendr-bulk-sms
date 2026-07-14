@@ -5,11 +5,13 @@ import {
   DEFAULT_COUNTRY,
   type NormalizedPhone,
 } from '@/lib/phone'
-import { type ParsedSheet, guessPhoneColumn } from '@/lib/csv'
+import { type ParsedSheet, guessPhoneColumn, MAX_RECIPIENTS } from '@/lib/csv'
 import { analyzeMessage, campaignCost, costPerRecipient } from '@/lib/sms'
 import { containsEmoji } from '@/lib/emoji'
 import { useWallet } from '@/stores/wallet'
 import { useSenderIds } from '@/stores/senderIds'
+import { usePricing } from '@/stores/pricing'
+import type { CampaignRecipientInput } from '@/stores/campaigns'
 
 export type RecipientSource = 'manual' | 'upload'
 
@@ -40,12 +42,25 @@ export function createCompose() {
   const message = ref('')
   const senderId = ref(senderIds.approved.value[0]?.name ?? '')
 
-  // Scheduling (optional).
+  // Scheduling (optional). scheduleAt is a datetime-local string (local time); we convert it
+  // to an absolute ISO instant for the API, which stores/compares in UTC.
   const scheduled = ref(false)
-  const scheduleAt = ref('') // datetime-local string
+  const scheduleAt = ref('')
+  // Valid when not scheduling, or scheduling a parseable time at least a minute out (matches
+  // the server, which treats anything nearer than that as send-now).
+  const scheduleValid = computed(
+    () => !scheduled.value || (!!scheduleAt.value && new Date(scheduleAt.value).getTime() > Date.now() + 60_000),
+  )
+  // The instant to send at, for the create payload — undefined when sending now.
+  const scheduledAtISO = computed<string | undefined>(() => {
+    if (!scheduled.value || !scheduleAt.value) return undefined
+    const d = new Date(scheduleAt.value)
+    return Number.isFinite(d.getTime()) ? d.toISOString() : undefined
+  })
 
-  // Shared wallet (app-wide singleton).
+  // Shared wallet + live pricing (app-wide singletons).
   const wallet = useWallet()
+  const pricing = usePricing()
 
   // ── Manual recipients ──────────────────────────────────────────────────
   function addManual(blob: string) {
@@ -100,6 +115,10 @@ export function createCompose() {
   const validRecipients = computed(() => recipients.value.filter((r) => r.valid))
   const invalidCount = computed(() => recipients.value.length - validRecipients.value.length)
   const totalCount = computed(() => recipients.value.length)
+  // The authoritative limit: unique valid recipients (post-dedup) can't exceed the per-campaign
+  // cap. A file with duplicates that settles under the cap is fine; this only blocks a genuinely
+  // oversized list. Matches the backend's MaxRecipients check exactly.
+  const tooManyRecipients = computed(() => validRecipients.value.length > MAX_RECIPIENTS)
 
   // Preview: message rendered against the first few data rows.
   const previews = computed(() => {
@@ -145,8 +164,8 @@ export function createCompose() {
   const meterInfo = computed(() => (usesMergeData.value ? worst.value.info : templateInfo.value))
 
   const billedSegments = computed(() => Math.max(templateInfo.value.segments, worst.value.info.segments))
-  const perRecipientCost = computed(() => costPerRecipient(billedSegments.value))
-  const totalCost = computed(() => campaignCost(validRecipients.value.length, billedSegments.value))
+  const perRecipientCost = computed(() => costPerRecipient(billedSegments.value, pricing.pricePerPart.value))
+  const totalCost = computed(() => campaignCost(validRecipients.value.length, billedSegments.value, pricing.pricePerPart.value))
   const sufficient = computed(() => totalCost.value <= wallet.balance.value)
 
   const hasApprovedSender = computed(() => senderIds.approved.value.some((s) => s.name === senderId.value))
@@ -157,12 +176,65 @@ export function createCompose() {
   const canSend = computed(
     () =>
       validRecipients.value.length > 0 &&
+      !tooManyRecipients.value &&
       message.value.trim().length > 0 &&
       !messageHasEmoji.value &&
       hasApprovedSender.value &&
       sufficient.value &&
-      (!scheduled.value || !!scheduleAt.value),
+      scheduleValid.value,
   )
+
+  // ── Stepper ────────────────────────────────────────────────────────────
+  // The compose flow is a 3-step wizard: Recipients → Message → Review & send.
+  const step = ref<1 | 2 | 3>(1)
+  // Set once a campaign is sent, so the view can swap the wizard for a success screen.
+  const completed = ref(false)
+  const recipientsReady = computed(() => validRecipients.value.length > 0)
+  const messageReady = computed(
+    () => message.value.trim().length > 0 && !messageHasEmoji.value && hasApprovedSender.value,
+  )
+
+  function goToStep(n: 1 | 2 | 3) {
+    if (n === step.value) return
+    // Going back is always allowed; going forward requires prior steps to be ready.
+    if (n > step.value) {
+      if (n >= 2 && !recipientsReady.value) return
+      if (n >= 3 && !messageReady.value) return
+    }
+    step.value = n
+  }
+  function nextStep() {
+    if (step.value < 3) goToStep((step.value + 1) as 1 | 2 | 3)
+  }
+  function prevStep() {
+    if (step.value > 1) step.value = (step.value - 1) as 1 | 2 | 3
+  }
+
+  // Send mode: an uploaded sheet whose message uses {{column}} fields merges per row;
+  // everything else sends the message verbatim.
+  const sendMode = computed<'simple' | 'merge'>(() => (usesMergeData.value ? 'merge' : 'simple'))
+
+  // Build the recipients payload for the create endpoint. Manual entry sends bare numbers;
+  // an upload sends each valid, de-duped number plus its full row (columns) for {{merge}}.
+  function buildRecipientsPayload(): CampaignRecipientInput[] {
+    if (source.value === 'manual') {
+      return validRecipients.value.map((r) => ({ phone: r.e164 ?? r.raw }))
+    }
+    if (sheet.value && phoneColumn.value) {
+      const seen = new Set<string>()
+      const out: CampaignRecipientInput[] = []
+      for (const row of sheet.value.rows) {
+        const p = normalizePhone(row[phoneColumn.value] ?? '', defaultCountry.value)
+        if (!p.valid) continue
+        const key = p.e164 ?? p.raw
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        out.push({ phone: key, data: { ...row } })
+      }
+      return out
+    }
+    return []
+  }
 
   return {
     // state
@@ -175,6 +247,8 @@ export function createCompose() {
     senderId,
     scheduled,
     scheduleAt,
+    scheduleValid,
+    scheduledAtISO,
     wallet,
     // actions
     addManual,
@@ -188,6 +262,7 @@ export function createCompose() {
     validRecipients,
     invalidCount,
     totalCount,
+    tooManyRecipients,
     previews,
     templateInfo,
     usesMergeData,
@@ -200,6 +275,16 @@ export function createCompose() {
     hasApprovedSender,
     messageHasEmoji,
     canSend,
+    sendMode,
+    buildRecipientsPayload,
+    // stepper
+    step,
+    completed,
+    recipientsReady,
+    messageReady,
+    goToStep,
+    nextStep,
+    prevStep,
   }
 }
 

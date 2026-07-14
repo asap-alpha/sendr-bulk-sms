@@ -179,7 +179,7 @@ const steps = [
       <div class="mx-auto max-w-lg rounded-2xl border bg-card p-8 text-center shadow-sm">
         <h2 class="text-3xl font-semibold tracking-tight">Simple, prepaid pricing</h2>
         <div class="mt-6 flex items-baseline justify-center gap-1">
-          <span class="text-5xl font-semibold">{{ CURRENCY }} {{ SMS_RATE.toFixed(3) }}</span>
+          <span class="text-5xl font-semibold">{{ CURRENCY }} {{ SMS_RATE.toFixed(2) }}</span>
           <span class="text-muted-foreground">/ SMS segment</span>
         </div>
         <ul class="mx-auto mt-6 max-w-xs space-y-2 text-left text-sm">
@@ -202,7 +202,7 @@ const steps = [
           </div>
           <span class="font-medium text-foreground">Sendr <span class="font-normal text-muted-foreground">Bulk SMS</span></span>
         </div>
-        <span>© {{ new Date().getFullYear() }} Sendr Bulk SMS. Demo environment.</span>
+        <span>© {{ new Date().getFullYear() }} Sendr Bulk SMS.</span>
       </div>
     </footer>
   </div>

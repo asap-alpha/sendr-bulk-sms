@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuth } from '@/stores/auth'
+import { authReady, useAuth } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,7 +23,10 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  // Wait for Firebase to restore any existing session before deciding on access,
+  // otherwise a hard refresh on a protected route bounces the user to /login.
+  await authReady()
   const { isAuthenticated } = useAuth()
   // Protected routes require a session.
   if (!to.meta.public && !isAuthenticated.value) {

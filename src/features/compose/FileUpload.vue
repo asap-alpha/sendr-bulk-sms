@@ -2,7 +2,7 @@
 import { computed, inject, ref } from 'vue'
 import { UploadCloud, FileSpreadsheet, X, CheckCircle2, AlertTriangle } from 'lucide-vue-next'
 import { ComposeKey } from './useCompose'
-import { parseSpreadsheet } from '@/lib/csv'
+import { parseSpreadsheet, MAX_RECIPIENTS } from '@/lib/csv'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
 
@@ -53,7 +53,9 @@ const invalidCount = computed(() => store.invalidCount.value)
     >
       <UploadCloud class="size-8 text-muted-foreground" />
       <div class="text-sm font-medium">Drop your Excel or CSV here, or click to browse</div>
-      <div class="text-xs text-muted-foreground">.xlsx, .xls, .csv — first row should be column headers</div>
+      <div class="text-xs text-muted-foreground">
+        .xlsx, .xls, .csv — first row should be column headers. Up to {{ MAX_RECIPIENTS.toLocaleString() }} recipients per file.
+      </div>
       <input ref="input" type="file" accept=".xlsx,.xls,.csv" class="hidden" @change="onPick" />
     </div>
 
@@ -98,6 +100,15 @@ const invalidCount = computed(() => store.invalidCount.value)
         <Badge v-if="invalidCount" variant="destructive"><AlertTriangle class="size-3" /> {{ invalidCount }} invalid / skipped</Badge>
         <span class="text-muted-foreground">Other columns are available as merge fields in your message.</span>
       </div>
+
+      <!-- Over the per-campaign recipient limit (after de-duplication) -->
+      <p v-if="validCount > MAX_RECIPIENTS" class="flex items-start gap-1.5 text-sm text-destructive">
+        <AlertTriangle class="mt-0.5 size-4 shrink-0" />
+        <span>
+          This file has {{ validCount.toLocaleString() }} unique recipients, over the
+          {{ MAX_RECIPIENTS.toLocaleString() }} limit for one campaign. Split it into separate files and send them one at a time.
+        </span>
+      </p>
 
       <!-- Data preview -->
       <div class="overflow-hidden rounded-lg border">

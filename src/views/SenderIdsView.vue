@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Plus, BadgeCheck, Clock, XCircle, Info, ShieldQuestion } from 'lucide-vue-next'
-import { useSenderIds, validateSenderId, type SenderIdStatus } from '@/stores/senderIds'
+import { computed, onMounted, ref } from 'vue'
+import { Plus, BadgeCheck, Clock, XCircle, Info, Trash2 } from 'lucide-vue-next'
+import { useSenderIds, validateSenderId, type SenderId, type SenderIdStatus } from '@/stores/senderIds'
+import { ApiError } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -9,8 +10,13 @@ import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Modal from '@/components/ui/Modal.vue'
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 
 const store = useSenderIds()
+
+onMounted(() => {
+  store.refresh().catch(() => {})
+})
 
 const statusMeta: Record<SenderIdStatus, { variant: 'success' | 'warning' | 'destructive'; icon: typeof BadgeCheck; label: string }> = {
   approved: { variant: 'success', icon: BadgeCheck, label: 'Approved' },
@@ -22,6 +28,7 @@ const statusMeta: Record<SenderIdStatus, { variant: 'success' | 'warning' | 'des
 const open = ref(false)
 const form = ref({ name: '', purpose: '', sample: '' })
 const submitError = ref('')
+const submitting = ref(false)
 
 const nameError = computed(() => (form.value.name ? validateSenderId(form.value.name) : null))
 
@@ -31,7 +38,33 @@ function openModal() {
   open.value = true
 }
 
-function submit() {
+// ── Remove confirmation ────────────────────────────────────────────────────
+const confirmTarget = ref<SenderId | null>(null)
+const removingId = ref<string | null>(null)
+const removeError = ref('')
+
+function askRemove(s: SenderId) {
+  removeError.value = ''
+  confirmTarget.value = s
+}
+
+async function confirmRemove() {
+  const s = confirmTarget.value
+  if (!s || removingId.value) return
+  removingId.value = s.id
+  removeError.value = ''
+  try {
+    await store.remove(s.id)
+    confirmTarget.value = null
+  } catch (e) {
+    removeError.value = e instanceof ApiError ? e.message : `Couldn't remove "${s.name}". Please try again.`
+    confirmTarget.value = null
+  } finally {
+    removingId.value = null
+  }
+}
+
+async function submit() {
   submitError.value = ''
   const err = validateSenderId(form.value.name)
   if (err) {
@@ -39,15 +72,22 @@ function submit() {
     return
   }
   if (store.exists(form.value.name)) {
-    submitError.value = 'You already have a request or approval for that sender ID.'
+    submitError.value = 'You already have a pending or approved sender ID.'
     return
   }
   if (!form.value.purpose.trim() || !form.value.sample.trim()) {
     submitError.value = 'Describe the purpose and add a sample message.'
     return
   }
-  store.request(form.value)
-  open.value = false
+  submitting.value = true
+  try {
+    await store.request(form.value)
+    open.value = false
+  } catch (e) {
+    submitError.value = e instanceof ApiError ? e.message : 'Could not submit the request. Try again.'
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -70,6 +110,11 @@ function submit() {
       </p>
     </div>
 
+    <!-- Remove error -->
+    <p v-if="removeError" class="mt-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+      {{ removeError }}
+    </p>
+
     <!-- List -->
     <div class="mt-6 grid gap-4 sm:grid-cols-2">
       <div v-for="s in store.items.value" :key="s.id" class="flex flex-col rounded-xl border bg-card p-5 shadow-sm">
@@ -78,10 +123,20 @@ function submit() {
             <div class="text-lg font-semibold">{{ s.name }}</div>
             <div class="text-xs text-muted-foreground">Requested {{ formatDate(s.createdAt) }}</div>
           </div>
-          <Badge :variant="statusMeta[s.status].variant" class="shrink-0">
-            <component :is="statusMeta[s.status].icon" class="size-3" />
-            {{ statusMeta[s.status].label }}
-          </Badge>
+          <div class="flex shrink-0 items-center gap-2">
+            <Badge :variant="statusMeta[s.status].variant">
+              <component :is="statusMeta[s.status].icon" class="size-3" />
+              {{ statusMeta[s.status].label }}
+            </Badge>
+            <button
+              class="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+              :disabled="removingId === s.id"
+              title="Remove sender ID"
+              @click="askRemove(s)"
+            >
+              <Trash2 class="size-4" />
+            </button>
+          </div>
         </div>
 
         <dl class="mt-3 space-y-2 text-sm">
@@ -98,15 +153,11 @@ function submit() {
         <div v-if="s.status === 'rejected' && s.rejectionReason" class="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {{ s.rejectionReason }}
         </div>
+      </div>
 
-        <!-- Demo reviewer controls -->
-        <div v-if="s.status === 'pending'" class="mt-4 flex items-center gap-2 border-t pt-3">
-          <span class="flex items-center gap-1 text-xs text-muted-foreground"><ShieldQuestion class="size-3.5" /> Demo review:</span>
-          <Button size="sm" variant="outline" @click="store.approve(s.id)">Approve</Button>
-          <Button size="sm" variant="ghost" class="text-destructive hover:text-destructive" @click="store.reject(s.id, 'Insufficient information provided for this sender ID.')">
-            Reject
-          </Button>
-        </div>
+      <!-- Empty state -->
+      <div v-if="store.loaded.value && store.items.value.length === 0" class="rounded-xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground sm:col-span-2">
+        No sender ID yet. Request one to start sending campaigns.
       </div>
     </div>
 
@@ -138,9 +189,29 @@ function submit() {
 
         <div class="flex justify-end gap-2 border-t pt-4">
           <Button type="button" variant="ghost" @click="open = false">Cancel</Button>
-          <Button type="submit">Submit for review</Button>
+          <Button type="submit" :disabled="submitting">{{ submitting ? 'Submitting…' : 'Submit for review' }}</Button>
         </div>
       </form>
     </Modal>
+
+    <!-- Remove confirmation -->
+    <ConfirmDialog
+      :open="!!confirmTarget"
+      title="Remove sender ID"
+      confirm-label="Remove"
+      loading-label="Removing…"
+      cancel-label="Keep it"
+      :loading="!!removingId"
+      @confirm="confirmRemove"
+      @close="confirmTarget = null"
+    >
+      <template v-if="confirmTarget?.status === 'approved'">
+        Remove <strong class="text-foreground">“{{ confirmTarget?.name }}”</strong>? You won't be able to send
+        campaigns from it anymore.
+      </template>
+      <template v-else>
+        Remove the <strong class="text-foreground">“{{ confirmTarget?.name }}”</strong> request?
+      </template>
+    </ConfirmDialog>
   </div>
 </template>

@@ -4,6 +4,26 @@
  */
 import * as XLSX from 'xlsx'
 
+// The REAL per-campaign limit: unique, valid recipients actually sent. Mirrors the backend
+// guardrail (SmsCampaignService.MaxRecipients = 10000). Enforced at the review step on the
+// DEDUPED count — so a file with duplicates that settles under the limit is accepted.
+export const MAX_RECIPIENTS = 10000
+
+// Parse-time fail-fast ceiling on RAW rows: well above MAX_RECIPIENTS to allow heavy
+// duplication, but bounded so a pathologically huge file can't exhaust browser memory.
+export const MAX_SHEET_ROWS = 50000
+
+// Max columns/headers — every column is sent per recipient for {{merge}}, so this bounds payload.
+export const MAX_SHEET_COLUMNS = 50
+
+// Thrown when a file is over a limit — carries a user-facing "split the file" message.
+export class SheetTooLargeError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SheetTooLargeError'
+  }
+}
+
 export interface ParsedSheet {
   fileName: string
   headers: string[]
@@ -26,6 +46,19 @@ export async function parseSpreadsheet(file: File): Promise<ParsedSheet> {
   })
 
   if (matrix.length === 0) throw new Error('The file is empty.')
+
+  // Enforce the caps BEFORE building row objects, so an oversized file fails fast instead of
+  // allocating hundreds of thousands of rows first.
+  const columnCount = (matrix[0] as unknown[]).length
+  if (columnCount > MAX_SHEET_COLUMNS)
+    throw new SheetTooLargeError(
+      `This file has ${columnCount} columns, over the ${MAX_SHEET_COLUMNS}-column limit. Remove the columns your message doesn't use, then upload again.`,
+    )
+  const dataRowCount = matrix.length - 1 // first row is the header
+  if (dataRowCount > MAX_SHEET_ROWS)
+    throw new SheetTooLargeError(
+      `This file has ${dataRowCount.toLocaleString()} rows — too large to process in one go. Split it into files of up to ${MAX_RECIPIENTS.toLocaleString()} recipients each.`,
+    )
 
   const rawHeaders = (matrix[0] as unknown[]).map((h, i) =>
     String(h ?? '').trim() || `Column ${i + 1}`,

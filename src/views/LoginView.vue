@@ -8,13 +8,14 @@ import Input from '@/components/ui/Input.vue'
 import PasswordInput from '@/components/ui/PasswordInput.vue'
 import Label from '@/components/ui/Label.vue'
 import { useAuth } from '@/stores/auth'
+import { authErrorMessage } from '@/lib/firebase'
 
 const route = useRoute()
 const router = useRouter()
 const { login, loginWithGoogle } = useAuth()
 
-const email = ref('demo@sendr.app')
-const password = ref('password')
+const email = ref((route.query.email as string) ?? '')
+const password = ref('')
 const loading = ref(false)
 const googleLoading = ref(false)
 const error = ref('')
@@ -34,6 +35,8 @@ async function submit() {
   try {
     await login(email.value.trim(), password.value)
     goNext()
+  } catch (e) {
+    error.value = authErrorMessage(e)
   } finally {
     loading.value = false
   }
@@ -45,6 +48,8 @@ async function google() {
   try {
     await loginWithGoogle()
     goNext()
+  } catch (e) {
+    error.value = authErrorMessage(e)
   } finally {
     googleLoading.value = false
   }
@@ -84,9 +89,6 @@ async function google() {
     <p class="mt-6 text-center text-sm text-muted-foreground">
       New to Sendr?
       <RouterLink :to="{ name: 'signup' }" class="font-medium text-primary hover:underline">Create an account</RouterLink>
-    </p>
-    <p class="mt-4 rounded-lg bg-muted/60 px-3 py-2 text-center text-xs text-muted-foreground">
-      Demo — any email and password will sign you in.
     </p>
   </AuthShell>
 </template>

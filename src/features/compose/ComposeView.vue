@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { inject } from 'vue'
-import { Keyboard, FileSpreadsheet } from 'lucide-vue-next'
+import { computed, inject } from 'vue'
+import { Keyboard, FileSpreadsheet, Check, ArrowLeft, ArrowRight } from 'lucide-vue-next'
 import { ComposeKey } from './useCompose'
 import RecipientChips from './RecipientChips.vue'
 import FileUpload from './FileUpload.vue'
@@ -10,23 +10,68 @@ import Tabs from '@/components/ui/Tabs.vue'
 import TabsList from '@/components/ui/TabsList.vue'
 import TabsTrigger from '@/components/ui/TabsTrigger.vue'
 import TabsContent from '@/components/ui/TabsContent.vue'
+import Button from '@/components/ui/Button.vue'
+import { formatCurrency } from '@/lib/sms'
+import { formatNumber } from '@/lib/utils'
 
 const store = inject(ComposeKey)!
+
+const steps = [
+  { n: 1 as const, label: 'Recipients' },
+  { n: 2 as const, label: 'Message' },
+  { n: 3 as const, label: 'Review & send' },
+]
+
+// Whether the "Continue" button on the current step is allowed.
+const canContinue = computed(() => {
+  if (store.step.value === 1) return store.recipientsReady.value
+  if (store.step.value === 2) return store.messageReady.value
+  return true
+})
 </script>
 
 <template>
-  <div class="mx-auto grid max-w-6xl gap-6 px-4 py-8 lg:grid-cols-[minmax(0,1fr)_360px]">
-    <!-- Main column -->
-    <div class="min-w-0 space-y-6">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight">New campaign</h1>
-        <p class="text-sm text-muted-foreground">Add recipients, write your message, and see the cost before you send.</p>
-      </div>
+  <div class="mx-auto max-w-2xl px-4 py-8">
+    <div class="mb-6">
+      <h1 class="text-2xl font-semibold tracking-tight">New campaign</h1>
+      <p class="text-sm text-muted-foreground">Add recipients, write your message, and review the cost before you send.</p>
+    </div>
 
-      <!-- Recipients -->
-      <section class="rounded-xl border bg-card shadow-sm">
+    <!-- Stepper chrome — hidden once the campaign is sent -->
+    <template v-if="!store.completed.value">
+      <nav class="mb-6 flex items-center">
+        <template v-for="(s, i) in steps" :key="s.n">
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-full text-left"
+            @click="store.goToStep(s.n)"
+          >
+            <span
+              class="flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors"
+              :class="[
+                s.n === store.step.value ? 'border-primary bg-primary text-primary-foreground' : '',
+                s.n < store.step.value ? 'border-primary bg-primary/10 text-primary' : '',
+                s.n > store.step.value ? 'border-input bg-background text-muted-foreground' : '',
+              ]"
+            >
+              <Check v-if="s.n < store.step.value" class="size-4" />
+              <template v-else>{{ s.n }}</template>
+            </span>
+            <span
+              class="hidden text-sm font-medium sm:inline"
+              :class="s.n === store.step.value ? 'text-foreground' : 'text-muted-foreground'"
+            >
+              {{ s.label }}
+            </span>
+          </button>
+          <span v-if="i < steps.length - 1" class="mx-2 h-px flex-1 bg-border sm:mx-3" />
+        </template>
+      </nav>
+
+      <!-- Step 1 · Recipients -->
+      <section v-show="store.step.value === 1" class="rounded-xl border bg-card shadow-sm">
         <div class="border-b px-5 py-4">
-          <h2 class="font-semibold">1 · Recipients</h2>
+          <h2 class="font-semibold">Recipients</h2>
           <p class="text-sm text-muted-foreground">Type them in or upload a spreadsheet.</p>
         </div>
         <div class="px-5 py-4">
@@ -41,21 +86,39 @@ const store = inject(ComposeKey)!
         </div>
       </section>
 
-      <!-- Message -->
-      <section class="rounded-xl border bg-card shadow-sm">
+      <!-- Step 2 · Message -->
+      <section v-show="store.step.value === 2" class="rounded-xl border bg-card shadow-sm">
         <div class="border-b px-5 py-4">
-          <h2 class="font-semibold">2 · Message</h2>
+          <h2 class="font-semibold">Message</h2>
           <p class="text-sm text-muted-foreground">We count segments and cost live as you type.</p>
         </div>
         <div class="px-5 py-4">
           <MessageEditor />
         </div>
       </section>
+    </template>
+
+    <!-- Step 3 · Review & send — single instance, also holds the success screen -->
+    <div v-show="store.step.value === 3 || store.completed.value">
+      <CostSummary />
     </div>
 
-    <!-- Sidebar -->
-    <aside>
-      <CostSummary />
-    </aside>
+    <!-- Wizard nav -->
+    <div v-if="!store.completed.value" class="mt-6 flex items-center justify-between gap-3">
+      <Button v-if="store.step.value > 1" variant="ghost" @click="store.prevStep()">
+        <ArrowLeft class="size-4" /> Back
+      </Button>
+      <span v-else />
+
+      <div class="flex items-center gap-4">
+        <span v-if="store.step.value < 3 && store.recipientsReady.value" class="text-xs text-muted-foreground">
+          {{ formatNumber(store.validRecipients.value.length) }} recipient{{ store.validRecipients.value.length === 1 ? '' : 's' }}
+          <template v-if="store.message.value.trim()"> · {{ formatCurrency(store.totalCost.value) }} est.</template>
+        </span>
+        <Button v-if="store.step.value < 3" :disabled="!canContinue" @click="store.nextStep()">
+          Continue <ArrowRight class="size-4" />
+        </Button>
+      </div>
+    </div>
   </div>
 </template>
