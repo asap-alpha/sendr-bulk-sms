@@ -1,0 +1,57 @@
+# DigitalOcean App Platform spec for the Sendr Bulk SMS frontend (static site).
+#
+# Apply it either way:
+#   • Dashboard: create the app from your repo, or Settings → "Edit your app spec"
+#     and paste this in.
+#   • CLI:  doctl apps create --spec .do/app.yaml   (or `doctl apps update <id> --spec .do/app.yaml`)
+#
+# The critical line is `catchall_document: index.html` — it makes App Platform serve
+# index.html for any unmatched path, so deep links like /login and /app/compose work
+# on refresh/direct-visit instead of 404ing (required for Vue Router history mode).
+#
+# NOTE: every VITE_* var is BUILD_TIME scope — Vite bakes them into the bundle during
+# `npm run build`, so they must be present at build, not runtime. They also end up
+# publicly visible in the shipped JS (Firebase web config + API URL are public config,
+# not secrets — never put a real secret in a VITE_ var).
+
+name: sendr-bulk-sms
+region: fra # Frankfurt — lowest latency to Ghana. Alternatives: lon, ams.
+
+static_sites:
+  - name: web
+    github:
+      repo: asap-alpha/sendr-bulk-sms
+      branch: main # change to your deploy branch (currently on `dev`)
+      deploy_on_push: true
+
+    build_command: npm run build
+    output_dir: dist
+    catchall_document: index.html # ← SPA fallback. Do not remove.
+
+    envs:
+      # Backend API base URL (no trailing slash).
+      - key: VITE_API_BASE_URL
+        scope: BUILD_TIME
+        value: https://api.cheqam.com
+
+      # Firebase web config — MUST be the project the backend verifies ID tokens against.
+      # Replace these with the real project's values (the .env.example still carries a
+      # different project's config). Set them here or as app-level secrets in the dashboard.
+      - key: VITE_FIREBASE_API_KEY
+        scope: BUILD_TIME
+        value: REPLACE_ME
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        scope: BUILD_TIME
+        value: REPLACE_ME
+      - key: VITE_FIREBASE_PROJECT_ID
+        scope: BUILD_TIME
+        value: REPLACE_ME
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        scope: BUILD_TIME
+        value: REPLACE_ME
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        scope: BUILD_TIME
+        value: REPLACE_ME
+      - key: VITE_FIREBASE_APP_ID
+        scope: BUILD_TIME
+        value: REPLACE_ME
