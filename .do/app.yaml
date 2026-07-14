@@ -20,7 +20,7 @@ region: fra # Frankfurt — lowest latency to Ghana. Alternatives: lon, ams.
 static_sites:
   - name: web
     github:
-      repo: asap-alpha/sendr-bulk-sms
+      repo: https://github.com/asap-alpha/sendr-bulk-sms.git
       branch: main # change to your deploy branch (currently on `dev`)
       deploy_on_push: true
 
@@ -34,24 +34,24 @@ static_sites:
         scope: BUILD_TIME
         value: https://api.cheqam.com
 
-      # Firebase web config — MUST be the project the backend verifies ID tokens against.
-      # Replace these with the real project's values (the .env.example still carries a
-      # different project's config). Set them here or as app-level secrets in the dashboard.
+      # Firebase web config — the project the backend verifies ID tokens against.
+      # SAME project as TailorsFlow (tailorflow-2e8c5), so auth + users are shared.
+      # These are public web-config values (they ship in the JS bundle) — not secrets.
       - key: VITE_FIREBASE_API_KEY
         scope: BUILD_TIME
-        value: REPLACE_ME
+        value: AIzaSyB0r8loiqXBu8lnfAnoRdpxUSLW2Y85OAY
       - key: VITE_FIREBASE_AUTH_DOMAIN
         scope: BUILD_TIME
-        value: REPLACE_ME
+        value: tailorflow-2e8c5.firebaseapp.com
       - key: VITE_FIREBASE_PROJECT_ID
         scope: BUILD_TIME
-        value: REPLACE_ME
+        value: tailorflow-2e8c5
       - key: VITE_FIREBASE_STORAGE_BUCKET
         scope: BUILD_TIME
-        value: REPLACE_ME
+        value: tailorflow-2e8c5.firebasestorage.app
       - key: VITE_FIREBASE_MESSAGING_SENDER_ID
         scope: BUILD_TIME
-        value: REPLACE_ME
+        value: "777133043270"
       - key: VITE_FIREBASE_APP_ID
         scope: BUILD_TIME
-        value: REPLACE_ME
+        value: "1:777133043270:web:d5b4607c9437a7b36ee447"
