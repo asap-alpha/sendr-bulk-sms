@@ -16,9 +16,17 @@ const wallet = useWallet()
 const { user } = useAuth()
 const pricing = usePricing()
 
-// Live per-segment rate for this platform (Sendr's may differ from tailoredflow's);
-// falls back to the store default until /status resolves.
+// Live per-segment rate for this platform (Sendr's may differ from tailoredflow's).
+// Only meaningful once `rateReady` is true — before that the store holds a placeholder,
+// not this platform's price.
 const rate = computed(() => pricing.pricePerPart.value)
+const rateReady = computed(() => pricing.loaded.value)
+
+// How many single-segment SMS an amount buys at the live rate, or null while the rate is
+// unknown. Null renders as a dash: a wrong count that silently corrects itself looks like
+// the price moved on its own.
+const smsFor = (amount: number) =>
+  rateReady.value && rate.value > 0 ? Math.floor(amount / rate.value) : null
 
 onMounted(() => {
   wallet.refresh().catch(() => {})
@@ -53,7 +61,7 @@ const amount = computed(() => {
 })
 
 // Rough guide: how many single-segment SMS this buys, at the live per-segment rate.
-const estSms = computed(() => (rate.value > 0 ? Math.floor(amount.value / rate.value) : 0))
+const estSms = computed(() => smsFor(amount.value))
 
 const momoValid = computed(() => normalizePhone(momoNumber.value).valid)
 const activeNetwork = computed(() => networks.find((n) => n.id === network.value)!)
@@ -151,7 +159,10 @@ function again() {
               @click="pick(p)"
             >
               <div class="font-semibold">{{ p }}</div>
-              <div class="text-xs text-muted-foreground">{{ formatNumber(rate > 0 ? Math.floor(p / rate) : 0) }} SMS</div>
+              <div class="text-xs text-muted-foreground">
+                <template v-if="smsFor(p) !== null">{{ formatNumber(smsFor(p)!) }} SMS</template>
+                <template v-else>&mdash;</template>
+              </div>
             </button>
           </div>
 
@@ -194,7 +205,7 @@ function again() {
             <div>
               <div class="text-sm text-muted-foreground">You'll pay</div>
               <div class="text-2xl font-semibold">{{ formatCurrency(amount) }}</div>
-              <div class="text-xs text-muted-foreground">≈ {{ formatNumber(estSms) }} single-segment SMS</div>
+              <div v-if="estSms !== null" class="text-xs text-muted-foreground">≈ {{ formatNumber(estSms) }} single-segment SMS</div>
             </div>
             <Button size="lg" :disabled="!canPay" @click="pay">
               {{ processing ? 'Processing…' : `Pay ${formatCurrency(amount)}` }}
