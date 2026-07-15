@@ -110,7 +110,6 @@ const steps = [
           </RouterLink>
           <RouterLink :to="{ name: 'login' }"><Button size="lg" variant="outline">Sign in</Button></RouterLink>
         </div>
-        <p class="mt-4 text-sm text-muted-foreground">No credit card. 500 free demo credits.</p>
 
         <!-- Product peek -->
         <div class="mx-auto mt-16 max-w-4xl rounded-2xl border bg-card p-2 shadow-xl">
