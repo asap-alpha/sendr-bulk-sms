@@ -13,7 +13,9 @@ import { useSenderIds } from '@/stores/senderIds'
 import { usePricing } from '@/stores/pricing'
 import type { CampaignRecipientInput } from '@/stores/campaigns'
 
-export type RecipientSource = 'manual' | 'upload'
+export type RecipientSource = 'manual' | 'upload' | 'contacts'
+/** The sources backed by a ParsedSheet — a file upload or a phone-book import. */
+export type SheetSource = Exclude<RecipientSource, 'manual'>
 
 /**
  * Render a template's {{tokens}} against a row of spreadsheet data.
@@ -33,9 +35,11 @@ export function createCompose() {
   // Manual entry: list of normalized chips.
   const manual = reactive<NormalizedPhone[]>([])
 
-  // Upload entry.
+  // Sheet entry — a file upload or a phone-book import. Only one sheet is held at a
+  // time; sheetSource records which tab produced it.
   const sheet = ref<ParsedSheet | null>(null)
   const phoneColumn = ref<string | null>(null)
+  const sheetSource = ref<SheetSource | null>(null)
 
   const senderIds = useSenderIds()
 
@@ -80,24 +84,30 @@ export function createCompose() {
     manual.splice(0, manual.length)
   }
 
-  // ── Upload recipients ──────────────────────────────────────────────────
-  function setSheet(parsed: ParsedSheet) {
+  // ── Sheet recipients (upload / phone book) ─────────────────────────────
+  function setSheet(parsed: ParsedSheet, as: SheetSource = 'upload') {
     sheet.value = parsed
     phoneColumn.value = guessPhoneColumn(parsed)
-    source.value = 'upload'
+    sheetSource.value = as
+    source.value = as
   }
   function clearSheet() {
     sheet.value = null
     phoneColumn.value = null
+    sheetSource.value = null
   }
 
+  // A loaded sheet only counts while its own tab is selected. Switching to another tab
+  // parks it rather than dropping it, so going back doesn't lose the import.
+  const sheetActive = computed(() => !!sheet.value && sheetSource.value === source.value)
+
   // Tokens available for the message editor (spreadsheet columns).
-  const tokens = computed(() => (source.value === 'upload' && sheet.value ? sheet.value.headers : []))
+  const tokens = computed(() => (sheetActive.value && sheet.value ? sheet.value.headers : []))
 
   // Recipients from the active source, normalized.
   const recipients = computed<NormalizedPhone[]>(() => {
     if (source.value === 'manual') return manual
-    if (sheet.value && phoneColumn.value) {
+    if (sheetActive.value && sheet.value && phoneColumn.value) {
       const seen = new Set<string>()
       const out: NormalizedPhone[] = []
       for (const row of sheet.value.rows) {
@@ -122,7 +132,7 @@ export function createCompose() {
 
   // Preview: message rendered against the first few data rows.
   const previews = computed(() => {
-    if (source.value === 'upload' && sheet.value) {
+    if (sheetActive.value && sheet.value) {
       return sheet.value.rows.slice(0, 3).map((row) => ({
         to: phoneColumn.value ? row[phoneColumn.value] : '',
         text: renderTemplate(message.value, row),
@@ -134,7 +144,7 @@ export function createCompose() {
   // Worst-case segmentation: the row that renders to the most segments drives
   // the billed cost, so we surface that — not the raw template.
   const worst = computed(() => {
-    if (source.value === 'upload' && sheet.value && sheet.value.rows.length) {
+    if (sheetActive.value && sheet.value && sheet.value.rows.length) {
       let worstInfo = analyzeMessage(message.value)
       let worstText = message.value
       for (const row of sheet.value.rows) {
@@ -220,7 +230,7 @@ export function createCompose() {
     if (source.value === 'manual') {
       return validRecipients.value.map((r) => ({ phone: r.e164 ?? r.raw }))
     }
-    if (sheet.value && phoneColumn.value) {
+    if (sheetActive.value && sheet.value && phoneColumn.value) {
       const seen = new Set<string>()
       const out: CampaignRecipientInput[] = []
       for (const row of sheet.value.rows) {
@@ -243,6 +253,7 @@ export function createCompose() {
     manual,
     sheet,
     phoneColumn,
+    sheetSource,
     message,
     senderId,
     scheduled,
@@ -257,6 +268,7 @@ export function createCompose() {
     setSheet,
     clearSheet,
     // derived
+    sheetActive,
     tokens,
     recipients,
     validRecipients,
