@@ -35,6 +35,8 @@ function onPick(e: Event) {
   handleFile((e.target as HTMLInputElement).files?.[0])
 }
 
+// Only render a sheet this tab loaded — a phone-book import lives in its own tab.
+const sheet = computed(() => (store.sheetSource.value === 'upload' ? store.sheet.value : null))
 const validCount = computed(() => store.validRecipients.value.length)
 const invalidCount = computed(() => store.invalidCount.value)
 </script>
@@ -43,7 +45,7 @@ const invalidCount = computed(() => store.invalidCount.value)
   <div class="space-y-4">
     <!-- Dropzone -->
     <div
-      v-if="!store.sheet.value"
+      v-if="!sheet"
       class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-8 text-center transition-colors"
       :class="dragging ? 'border-primary bg-accent/50' : 'border-input hover:border-primary/50 hover:bg-accent/30'"
       @click="input?.click()"
@@ -65,12 +67,12 @@ const invalidCount = computed(() => store.invalidCount.value)
     <p v-if="loading" class="text-sm text-muted-foreground">Reading file…</p>
 
     <!-- Loaded file -->
-    <template v-if="store.sheet.value">
+    <template v-if="sheet">
       <div class="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2">
         <div class="flex items-center gap-2 text-sm">
           <FileSpreadsheet class="size-4 text-primary" />
-          <span class="font-medium">{{ store.sheet.value.fileName }}</span>
-          <Badge variant="secondary">{{ store.sheet.value.rows.length }} rows</Badge>
+          <span class="font-medium">{{ sheet.fileName }}</span>
+          <Badge variant="secondary">{{ sheet.rows.length }} rows</Badge>
         </div>
         <Button variant="ghost" size="sm" @click="store.clearSheet()"><X class="size-4" /> Remove</Button>
       </div>
@@ -83,7 +85,7 @@ const invalidCount = computed(() => store.invalidCount.value)
             v-model="store.phoneColumn.value"
             class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <option v-for="h in store.sheet.value.headers" :key="h" :value="h">{{ h }}</option>
+            <option v-for="h in sheet.headers" :key="h" :value="h">{{ h }}</option>
           </select>
         </label>
         <div class="space-y-1.5">
@@ -117,7 +119,7 @@ const invalidCount = computed(() => store.invalidCount.value)
             <thead class="sticky top-0 bg-muted">
               <tr>
                 <th
-                  v-for="h in store.sheet.value.headers"
+                  v-for="h in sheet.headers"
                   :key="h"
                   class="whitespace-nowrap px-3 py-2 font-semibold"
                   :class="h === store.phoneColumn.value ? 'text-primary' : ''"
@@ -127,8 +129,8 @@ const invalidCount = computed(() => store.invalidCount.value)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in store.sheet.value.rows.slice(0, 8)" :key="i" class="border-t">
-                <td v-for="h in store.sheet.value.headers" :key="h" class="whitespace-nowrap px-3 py-1.5">
+              <tr v-for="(row, i) in sheet.rows.slice(0, 8)" :key="i" class="border-t">
+                <td v-for="h in sheet.headers" :key="h" class="whitespace-nowrap px-3 py-1.5">
                   {{ row[h] }}
                 </td>
               </tr>

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, inject } from 'vue'
-import { Keyboard, FileSpreadsheet, Check, ArrowLeft, ArrowRight } from 'lucide-vue-next'
+import { computed, inject, onMounted, ref } from 'vue'
+import { Keyboard, FileSpreadsheet, Smartphone, Check, ArrowLeft, ArrowRight } from 'lucide-vue-next'
 import { ComposeKey } from './useCompose'
+import { contactsAvailable, isDesktop } from '@/lib/contacts'
 import RecipientChips from './RecipientChips.vue'
+import ContactPicker from './ContactPicker.vue'
 import FileUpload from './FileUpload.vue'
 import MessageEditor from './MessageEditor.vue'
 import CostSummary from './CostSummary.vue'
@@ -15,6 +17,18 @@ import { formatCurrency } from '@/lib/sms'
 import { formatNumber } from '@/lib/utils'
 
 const store = inject(ComposeKey)!
+
+// The Contact Picker API only exists on Chrome/Edge for Android, so the tab is
+// offered where it works and simply absent everywhere else — file upload covers
+// iOS and desktop. Support is queried at runtime, hence the mount hook.
+const showContacts = ref(false)
+// Desktop users get a one-line pointer to the feature instead, since they may well
+// have an Android phone to hand. Mobile users who can't use it are told nothing.
+const showPhoneHint = ref(false)
+onMounted(async () => {
+  showContacts.value = await contactsAvailable()
+  showPhoneHint.value = !showContacts.value && isDesktop()
+})
 
 const steps = [
   { n: 1 as const, label: 'Recipients' },
@@ -72,17 +86,26 @@ const canContinue = computed(() => {
       <section v-show="store.step.value === 1" class="rounded-xl border bg-card shadow-sm">
         <div class="border-b px-5 py-4">
           <h2 class="font-semibold">Recipients</h2>
-          <p class="text-sm text-muted-foreground">Type them in or upload a spreadsheet.</p>
+          <p class="text-sm text-muted-foreground">
+            Type them in{{ showContacts ? ', pick from your phone book' : '' }} or upload a spreadsheet.
+          </p>
         </div>
         <div class="px-5 py-4">
           <Tabs v-model="store.source.value">
-            <TabsList class="w-full max-w-sm">
+            <TabsList class="w-full" :class="showContacts ? 'max-w-lg' : 'max-w-sm'">
               <TabsTrigger value="manual"><Keyboard class="size-4" /> Type numbers</TabsTrigger>
+              <TabsTrigger v-if="showContacts" value="contacts"><Smartphone class="size-4" /> Phone book</TabsTrigger>
               <TabsTrigger value="upload"><FileSpreadsheet class="size-4" /> Upload file</TabsTrigger>
             </TabsList>
             <TabsContent value="manual"><RecipientChips /></TabsContent>
+            <TabsContent v-if="showContacts" value="contacts"><ContactPicker /></TabsContent>
             <TabsContent value="upload"><FileUpload /></TabsContent>
           </Tabs>
+
+          <p v-if="showPhoneHint" class="mt-4 flex items-start gap-2 border-t pt-3 text-xs text-muted-foreground">
+            <Smartphone class="mt-px size-3.5 shrink-0" />
+            <span>On an Android phone, you can pick recipients straight from your phone book — open this page in Chrome there.</span>
+          </p>
         </div>
       </section>
 
