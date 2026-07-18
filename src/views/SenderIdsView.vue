@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Plus, BadgeCheck, Clock, XCircle, Info, Trash2 } from 'lucide-vue-next'
-import { useSenderIds, validateSenderId, type SenderId, type SenderIdStatus } from '@/stores/senderIds'
+import { useRoute } from 'vue-router'
+import { Plus, BadgeCheck, Clock, XCircle, Info, Trash2, Rocket } from 'lucide-vue-next'
+import {
+  useSenderIds,
+  validateSenderId,
+  senderIdsLoaded,
+  senderIdsReady,
+  type SenderId,
+  type SenderIdStatus,
+} from '@/stores/senderIds'
 import { ApiError } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import Button from '@/components/ui/Button.vue'
@@ -13,9 +21,17 @@ import Modal from '@/components/ui/Modal.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
 
 const store = useSenderIds()
+const route = useRoute()
+
+// The router sends new accounts here from compose. Keep showing the welcome copy until
+// they actually have a sender ID, so a refresh mid-onboarding doesn't strip the context.
+const onboarding = computed(() => route.query.onboarding === '1' && store.items.value.length === 0)
 
 onMounted(() => {
-  store.refresh().catch(() => {})
+  // Already fetched by the router guard on the redirect path — only re-fetch on a direct
+  // visit, where seeing up-to-date approval status is the whole point.
+  if (senderIdsLoaded()) store.refresh().catch(() => {})
+  else senderIdsReady()
 })
 
 const statusMeta: Record<SenderIdStatus, { variant: 'success' | 'warning' | 'destructive'; icon: typeof BadgeCheck; label: string }> = {
@@ -95,14 +111,44 @@ async function submit() {
   <div class="mx-auto max-w-5xl px-4 py-8">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Sender IDs</h1>
+        <h1 class="text-2xl font-semibold tracking-tight">{{ onboarding ? 'One step before you can send' : 'Sender IDs' }}</h1>
         <p class="text-sm text-muted-foreground">The name recipients see. Each one is reviewed before you can send with it.</p>
       </div>
-      <Button @click="openModal"><Plus class="size-4" /> Request sender ID</Button>
+      <Button v-if="!onboarding" @click="openModal"><Plus class="size-4" /> Request sender ID</Button>
+    </div>
+
+    <!-- Onboarding — shown when the router redirected a brand-new account here from compose -->
+    <div v-if="onboarding" class="mt-6 rounded-xl border bg-card p-6 shadow-sm sm:p-8">
+      <div class="flex size-11 items-center justify-center rounded-full bg-primary/10">
+        <Rocket class="size-5 text-primary" />
+      </div>
+      <h2 class="mt-4 text-lg font-semibold">Request your sender ID to get started</h2>
+      <p class="mt-1.5 max-w-prose text-sm text-muted-foreground">
+        A sender ID is the short name your recipients see instead of a phone number — like
+        <span class="font-medium text-foreground">MyBrand</span>. Networks review every one before it goes live, so
+        it's worth requesting now while you set everything else up.
+      </p>
+      <ol class="mt-5 space-y-2.5 text-sm">
+        <li v-for="(s, i) in ['Pick a name, 3–11 letters or numbers', 'We send it to the networks for review', 'Once approved, it appears in Compose']" :key="i" class="flex items-start gap-2.5">
+          <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">
+            {{ i + 1 }}
+          </span>
+          <span class="text-muted-foreground">{{ s }}</span>
+        </li>
+      </ol>
+      <div class="mt-6 flex flex-wrap items-center gap-3">
+        <Button @click="openModal"><Plus class="size-4" /> Request sender ID</Button>
+        <RouterLink
+          :to="{ name: 'campaigns' }"
+          class="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          I'll do this later
+        </RouterLink>
+      </div>
     </div>
 
     <!-- Info banner -->
-    <div class="mt-6 flex items-start gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+    <div v-if="!onboarding" class="mt-6 flex items-start gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
       <Info class="mt-0.5 size-4 shrink-0 text-primary" />
       <p class="text-muted-foreground">
         Approval typically takes 1–2 business days. Use 3–11 letters/numbers, no spaces. Marketing IDs may require
@@ -155,8 +201,11 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Empty state -->
-      <div v-if="store.loaded.value && store.items.value.length === 0" class="rounded-xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground sm:col-span-2">
+      <!-- Empty state — suppressed during onboarding, which says the same thing better -->
+      <div
+        v-if="!onboarding && store.loaded.value && store.items.value.length === 0"
+        class="rounded-xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground sm:col-span-2"
+      >
         No sender ID yet. Request one to start sending campaigns.
       </div>
     </div>

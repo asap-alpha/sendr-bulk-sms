@@ -10,6 +10,7 @@ import {
 } from 'firebase/auth'
 import { auth, googleProvider } from '@/lib/firebase'
 import { api } from '@/lib/api'
+import { resetSenderIds } from '@/stores/senderIds'
 
 /**
  * Auth store (module singleton), backed by Firebase Auth.
@@ -92,6 +93,7 @@ onAuthStateChanged(auth, async (fbUser) => {
       state.user = await ensureProfile(fbUser)
     } else if (!fbUser) {
       state.user = null
+      resetSenderIds()
     }
   } catch {
     // If we can't confirm the profile, treat the session as signed-out rather than
@@ -145,6 +147,9 @@ export function useAuth() {
   async function logout() {
     await signOut(auth)
     state.user = null
+    // Clear per-account caches so the next user to sign in on this device is assessed
+    // fresh — otherwise they'd inherit the previous user's sender IDs and skip onboarding.
+    resetSenderIds()
   }
 
   // Ask the backend to re-send the Sendr verification email (no-op server-side if already
