@@ -4,7 +4,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import VerificationBanner from '@/components/VerificationBanner.vue'
 import { ComposeKey, createCompose } from '@/features/compose/useCompose'
 import { useWallet } from '@/stores/wallet'
-import { useSenderIds } from '@/stores/senderIds'
+import { senderIdsReady } from '@/stores/senderIds'
 import { usePricing } from '@/stores/pricing'
 
 // Compose state lives at the layout so it survives navigation between screens.
@@ -14,11 +14,11 @@ provide(ComposeKey, store)
 // Load the wallet balance (header), sender-ID list (compose picker), and live pricing
 // once the user enters the authenticated area.
 const wallet = useWallet()
-const senderIds = useSenderIds()
 const pricing = usePricing()
 onMounted(() => {
   wallet.refresh().catch(() => {})
-  senderIds.refresh().catch(() => {})
+  // Shares the router guard's barrier, so entering via compose doesn't fetch the list twice.
+  senderIdsReady()
   pricing.refresh().catch(() => {})
 })
 </script>

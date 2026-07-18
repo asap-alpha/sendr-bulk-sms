@@ -66,13 +66,45 @@ const state = reactive<{ items: SenderId[]; approvedNames: string[]; loaded: boo
   loaded: false,
 })
 
+async function refresh() {
+  const payload = await api.get<SenderIdListResponse>('/api/sms/sender-id/list')
+  state.items = (payload?.requests ?? []).map(mapRequest)
+  state.approvedNames = payload?.approved ?? []
+  state.loaded = true
+}
+
+// First-load barrier for the router guard, which runs before AppLayout mounts and so
+// can't wait on the layout's own refresh. De-duped: concurrent callers share one request.
+let readyPromise: Promise<void> | null = null
+export function senderIdsReady(): Promise<void> {
+  // Swallow the error deliberately — a failed lookup leaves `loaded` false, and the
+  // onboarding gate treats "don't know" as "don't redirect" rather than trapping the user.
+  readyPromise ??= refresh().catch(() => {})
+  return readyPromise
+}
+
+/** Drop the cached list on sign-out so the next user doesn't inherit it. */
+export function resetSenderIds() {
+  state.items = []
+  state.approvedNames = []
+  state.loaded = false
+  readyPromise = null
+}
+
+/**
+ * Whether this account has any sender ID at all, in any status (including a rejected or
+ * still-pending request, and admin-granted approvals that never had a request row).
+ * False here is what sends a new user to the request screen first.
+ */
+export function hasAnySenderId(): boolean {
+  return state.items.length > 0 || state.approvedNames.length > 0
+}
+
+export function senderIdsLoaded(): boolean {
+  return state.loaded
+}
+
 export function useSenderIds() {
-  async function refresh() {
-    const payload = await api.get<SenderIdListResponse>('/api/sms/sender-id/list')
-    state.items = (payload?.requests ?? []).map(mapRequest)
-    state.approvedNames = payload?.approved ?? []
-    state.loaded = true
-  }
 
   // Submit a new sender-ID request. The backend rejects a duplicate of an id that is already
   // pending/approved, so any error is surfaced to the caller.
