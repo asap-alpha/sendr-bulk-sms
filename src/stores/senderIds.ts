@@ -30,6 +30,23 @@ export function validateSenderId(name: string): string | null {
   return null
 }
 
+/**
+ * Ghana Card (KYC) format, mirroring the server's GhanaCard.Normalize — which accepts
+ * lowercase, spaces, missing hyphens, or a bare 10 digits. Deliberately no stricter than
+ * the server, or we'd reject input it would have taken and leave the merchant with an
+ * error they can't act on. Lives beside validateSenderId so there is ONE rule per field.
+ *
+ * Returns an error string, or null when acceptable. An EMPTY value returns null —
+ * whether the field is required depends on what's already on file, so that's the
+ * caller's call.
+ */
+export function validateGhanaCard(value: string): string | null {
+  const raw = (value ?? '').trim()
+  if (!raw) return null
+  const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^GHA/, '')
+  return /^\d{10}$/.test(compact) ? null : 'Enter it as GHA-123456789-0.'
+}
+
 // Backend shapes.
 interface SenderIdRequestDoc {
   id: string

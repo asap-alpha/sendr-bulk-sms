@@ -11,7 +11,7 @@
  */
 import { computed, ref } from 'vue'
 import { ShieldAlert } from 'lucide-vue-next'
-import { useSenderIds } from '@/stores/senderIds'
+import { useSenderIds, validateGhanaCard } from '@/stores/senderIds'
 import { ApiError } from '@/lib/api'
 import Button from '@/components/ui/Button.vue'
 import Input from '@/components/ui/Input.vue'
@@ -25,14 +25,7 @@ const form = ref({ ghanaCardNumber: '', phone: '' })
 const error = ref('')
 const submitting = ref(false)
 
-// Mirrors the server's normalizer, which accepts lowercase, spaces, missing hyphens or a
-// bare 10 digits — so this doesn't reject input the server would have taken.
-const cardError = computed(() => {
-  const raw = form.value.ghanaCardNumber.trim()
-  if (!raw) return null
-  const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^GHA/, '')
-  return /^\d{10}$/.test(compact) ? null : 'Enter it as GHA-123456789-0.'
-})
+const cardError = computed(() => validateGhanaCard(form.value.ghanaCardNumber))
 
 function openModal() {
   form.value = { ghanaCardNumber: '', phone: '' }
