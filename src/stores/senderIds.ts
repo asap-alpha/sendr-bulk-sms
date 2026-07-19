@@ -235,15 +235,11 @@ export function useSenderIds() {
     // same login — is never asked again.
     needsGhanaCard: computed(() => !state.hasGhanaCard),
     needsPhone: computed(() => !state.hasPhone),
-    // KYC is owed on an account that already has a live sender ID — pending, approved, or
-    // admin-granted. Deliberately NOT rejected-only: those merchants have to re-request
-    // anyway, and that form collects the same fields, so a banner there is just noise.
-    needsKycBackfill: computed(
-      () =>
-        (!state.hasGhanaCard || !state.hasPhone) &&
-        (state.approvedNames.length > 0 ||
-          state.items.some((i) => i.status === 'pending' || i.status === 'approved')),
-    ),
+    // KYC is owed. Deliberately NOT scoped to whether they hold a sender ID: identity
+    // capture is its own thing, and gating it on having a pending/approved one forced a
+    // merchant to REQUEST A SENDER ID they didn't want just to submit documents they
+    // already had. If a detail is missing we ask for it, whatever else is in flight.
+    needsKyc: computed(() => !state.hasGhanaCard || !state.hasPhone),
     refresh,
     request,
     submitKyc,

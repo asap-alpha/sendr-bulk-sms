@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * One-time KYC capture for an account that already holds a sender ID.
+ * One-time KYC capture, standalone — submitting your identity never requires requesting
+ * a sender ID you don't want. Shown in ANY sender-ID state when something is missing.
  *
  * Banner + modal in one self-contained piece, because it has to appear on more than one
  * screen: Sender IDs is where the merchant can act on it, but Compose is where they
@@ -19,6 +20,13 @@ import Label from '@/components/ui/Label.vue'
 import Modal from '@/components/ui/Modal.vue'
 
 const store = useSenderIds()
+
+// "Sending is paused" is only true for someone who could otherwise send. Saying it to a
+// merchant who holds no approved sender ID describes a state they were never in.
+const bannerText = computed(() =>
+  store.approved.value.length > 0
+    ? 'Networks require a verified identity behind your sender name. Sending is paused until you add it.'
+    : 'Networks require a verified identity behind a sender name. Add it once and your sender ID can be registered.')
 
 const open = ref(false)
 const form = ref({ ghanaCardNumber: '', phone: '' })
@@ -61,7 +69,7 @@ async function submit() {
 </script>
 
 <template>
-  <div v-if="store.needsKycBackfill.value">
+  <div v-if="store.needsKyc.value">
     <div
       class="flex flex-wrap items-center gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40"
     >
@@ -69,7 +77,7 @@ async function submit() {
       <div class="min-w-48 flex-1">
         <p class="text-sm font-semibold text-amber-900 dark:text-amber-200">One-time verification needed</p>
         <p class="text-sm text-amber-800 dark:text-amber-300">
-          Networks require a verified identity behind your sender name. Sending is paused until you add it.
+          {{ bannerText }}
         </p>
       </div>
       <Button variant="outline" @click="openModal">Add details</Button>
