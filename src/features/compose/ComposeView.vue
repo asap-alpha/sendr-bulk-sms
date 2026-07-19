@@ -13,6 +13,7 @@ import TabsList from '@/components/ui/TabsList.vue'
 import TabsTrigger from '@/components/ui/TabsTrigger.vue'
 import TabsContent from '@/components/ui/TabsContent.vue'
 import Button from '@/components/ui/Button.vue'
+import KycNotice from '@/components/KycNotice.vue'
 import { formatCurrency } from '@/lib/sms'
 import { formatNumber } from '@/lib/utils'
 
@@ -50,6 +51,12 @@ const canContinue = computed(() => {
       <h1 class="text-2xl font-semibold tracking-tight">New campaign</h1>
       <p class="text-sm text-muted-foreground">Add recipients, write your message, and review the cost before you send.</p>
     </div>
+
+    <!-- KYC is enforced server-side at campaign creation, so this is where a blocked
+         merchant would otherwise meet a bare rejection at the end of the flow — after
+         picking recipients and writing the message. Surfaced up front instead, and
+         actionable in place: no trip to Sender IDs to come back and start over. -->
+    <KycNotice class="mb-6" />
 
     <!-- Stepper chrome — hidden once the campaign is sent -->
     <template v-if="!store.completed.value">

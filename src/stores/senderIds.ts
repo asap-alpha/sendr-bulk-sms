@@ -45,6 +45,12 @@ interface SenderIdListResponse {
   approved: string[]
 }
 
+/** GET /api/sms/sender-id. Booleans only — the server never returns the card number. */
+interface SenderIdStatusResponse {
+  hasGhanaCard: boolean
+  hasPhone: boolean
+}
+
 function mapRequest(r: SenderIdRequestDoc): SenderId {
   const status: SenderIdStatus =
     r.status === 'approved' ? 'approved' : r.status === 'rejected' ? 'rejected' : 'pending'
@@ -60,16 +66,37 @@ function mapRequest(r: SenderIdRequestDoc): SenderId {
   }
 }
 
-const state = reactive<{ items: SenderId[]; approvedNames: string[]; loaded: boolean }>({
+const state = reactive<{
+  items: SenderId[]
+  approvedNames: string[]
+  loaded: boolean
+  /** KYC already on file. Drives whether the request form asks — we capture once. */
+  hasGhanaCard: boolean
+  hasPhone: boolean
+}>({
   items: [],
   approvedNames: [],
   loaded: false,
+  // Default TRUE so a failed/slow status call hides the fields rather than asking for
+  // details we may already hold. The server is the real gate — it rejects the request
+  // if the card is genuinely missing, and the error surfaces in the form.
+  hasGhanaCard: true,
+  hasPhone: true,
 })
 
 async function refresh() {
-  const payload = await api.get<SenderIdListResponse>('/api/sms/sender-id/list')
+  // Both reads in parallel — the status call is what tells us whether to ask for KYC,
+  // and blocking the list on it would slow the screen for everyone who's already done it.
+  const [payload, status] = await Promise.all([
+    api.get<SenderIdListResponse>('/api/sms/sender-id/list'),
+    api.get<SenderIdStatusResponse>('/api/sms/sender-id').catch(() => null),
+  ])
   state.items = (payload?.requests ?? []).map(mapRequest)
   state.approvedNames = payload?.approved ?? []
+  if (status) {
+    state.hasGhanaCard = status.hasGhanaCard === true
+    state.hasPhone = status.hasPhone === true
+  }
   state.loaded = true
 }
 
@@ -88,6 +115,11 @@ export function resetSenderIds() {
   state.items = []
   state.approvedNames = []
   state.loaded = false
+  // Back to the "don't ask" default, not to the previous user's answer — this is
+  // module-level state, so leaving it would show the next person a form shaped by
+  // whether the LAST person had a Ghana Card on file.
+  state.hasGhanaCard = true
+  state.hasPhone = true
   readyPromise = null
 }
 
@@ -108,10 +140,38 @@ export function useSenderIds() {
 
   // Submit a new sender-ID request. The backend rejects a duplicate of an id that is already
   // pending/approved, so any error is surfaced to the caller.
-  async function request(input: { name: string; purpose: string; sample: string }) {
+  async function request(input: {
+    name: string
+    purpose: string
+    sample: string
+    ghanaCardNumber?: string
+    phone?: string
+  }) {
     await api.post('/api/sms/sender-id', {
       senderId: input.name.trim(),
       purpose: input.purpose.trim(),
+      // KYC — the NCA requires an identity behind a sender name. Sent only when we
+      // don't already hold them; the server ignores a value it already has on file.
+      ghanaCardNumber: input.ghanaCardNumber?.trim() || undefined,
+      phone: input.phone?.trim() || undefined,
+    })
+    await refresh()
+  }
+
+  /**
+   * Submit KYC on its own, with no sender-ID request wrapped around it. This is the only
+   * capture path for an account that signed up on Sendr before the requirement: their
+   * sender ID is already requested or approved, so the request form — which is where the
+   * fields otherwise live — will never be shown to them again.
+   *
+   * Nothing on the server rescues these accounts either. The taxId fallback reads business
+   * settings, which a Sendr signup never creates, and the mobile resolver looks in profile
+   * settings and worker records, which they have neither of. Asking here is the only way.
+   */
+  async function submitKyc(input: { ghanaCardNumber?: string; phone?: string }) {
+    await api.post('/api/sms/sender-id/kyc', {
+      ghanaCardNumber: input.ghanaCardNumber?.trim() || undefined,
+      phone: input.phone?.trim() || undefined,
     })
     await refresh()
   }
@@ -153,8 +213,23 @@ export function useSenderIds() {
     approved,
     pending: computed(() => state.items.filter((i) => i.status === 'pending')),
     loaded: computed(() => state.loaded),
+    // Whether the request form still needs to ask for KYC. Capture once: a merchant
+    // who already gave us these — here, in TailoredFlow, or via a worker invite on the
+    // same login — is never asked again.
+    needsGhanaCard: computed(() => !state.hasGhanaCard),
+    needsPhone: computed(() => !state.hasPhone),
+    // KYC is owed on an account that already has a live sender ID — pending, approved, or
+    // admin-granted. Deliberately NOT rejected-only: those merchants have to re-request
+    // anyway, and that form collects the same fields, so a banner there is just noise.
+    needsKycBackfill: computed(
+      () =>
+        (!state.hasGhanaCard || !state.hasPhone) &&
+        (state.approvedNames.length > 0 ||
+          state.items.some((i) => i.status === 'pending' || i.status === 'approved')),
+    ),
     refresh,
     request,
+    submitKyc,
     remove,
     exists,
   }
