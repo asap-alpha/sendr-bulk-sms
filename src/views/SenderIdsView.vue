@@ -5,6 +5,7 @@ import { Plus, BadgeCheck, Clock, XCircle, Info, Trash2, Rocket } from 'lucide-v
 import {
   useSenderIds,
   validateSenderId,
+  validateGhanaCard,
   senderIdsLoaded,
   senderIdsReady,
   type SenderId,
@@ -55,17 +56,7 @@ const nameError = computed(() => (form.value.name ? validateSenderId(form.value.
 const needsGhanaCard = store.needsGhanaCard
 const needsPhone = store.needsPhone
 
-/**
- * Ghana Card format: GHA-XXXXXXXXX-X. Mirrors the server's normalizer, which accepts
- * lowercase, spaces, missing hyphens, or a bare 10 digits — so this validates the same
- * shapes rather than rejecting input the server would have happily taken.
- */
-const ghanaCardError = computed(() => {
-  const raw = form.value.ghanaCardNumber.trim()
-  if (!raw) return null
-  const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^GHA/, '')
-  return /^\d{10}$/.test(compact) ? null : 'Enter it as GHA-123456789-0.'
-})
+const ghanaCardError = computed(() => validateGhanaCard(form.value.ghanaCardNumber))
 
 function openModal() {
   form.value = { name: '', purpose: '', sample: '', ghanaCardNumber: '', phone: '' }
