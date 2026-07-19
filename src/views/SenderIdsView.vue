@@ -19,6 +19,7 @@ import Label from '@/components/ui/Label.vue'
 import Textarea from '@/components/ui/Textarea.vue'
 import Modal from '@/components/ui/Modal.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import KycNotice from '@/components/KycNotice.vue'
 
 const store = useSenderIds()
 const route = useRoute()
@@ -42,14 +43,32 @@ const statusMeta: Record<SenderIdStatus, { variant: 'success' | 'warning' | 'des
 
 // ── Request modal ──────────────────────────────────────────────────────────
 const open = ref(false)
-const form = ref({ name: '', purpose: '', sample: '' })
+const form = ref({ name: '', purpose: '', sample: '', ghanaCardNumber: '', phone: '' })
 const submitError = ref('')
 const submitting = ref(false)
 
 const nameError = computed(() => (form.value.name ? validateSenderId(form.value.name) : null))
 
+// KYC is asked for ONCE. If this account already gave us a Ghana Card or a mobile —
+// here, in TailoredFlow, or when a shop invited them as a worker — the same login is the
+// same person, so these fields never appear.
+const needsGhanaCard = store.needsGhanaCard
+const needsPhone = store.needsPhone
+
+/**
+ * Ghana Card format: GHA-XXXXXXXXX-X. Mirrors the server's normalizer, which accepts
+ * lowercase, spaces, missing hyphens, or a bare 10 digits — so this validates the same
+ * shapes rather than rejecting input the server would have happily taken.
+ */
+const ghanaCardError = computed(() => {
+  const raw = form.value.ghanaCardNumber.trim()
+  if (!raw) return null
+  const compact = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^GHA/, '')
+  return /^\d{10}$/.test(compact) ? null : 'Enter it as GHA-123456789-0.'
+})
+
 function openModal() {
-  form.value = { name: '', purpose: '', sample: '' }
+  form.value = { name: '', purpose: '', sample: '', ghanaCardNumber: '', phone: '' }
   submitError.value = ''
   open.value = true
 }
@@ -95,6 +114,22 @@ async function submit() {
     submitError.value = 'Describe the purpose and add a sample message.'
     return
   }
+  // Caught here so the merchant gets it beside the field instead of a round-trip and a
+  // server error at the bottom of the form. The server enforces it regardless.
+  if (needsGhanaCard.value) {
+    if (!form.value.ghanaCardNumber.trim()) {
+      submitError.value = 'Your Ghana Card number is required to register a sender ID.'
+      return
+    }
+    if (ghanaCardError.value) {
+      submitError.value = ghanaCardError.value
+      return
+    }
+  }
+  if (needsPhone.value && !form.value.phone.trim()) {
+    submitError.value = 'Add a mobile number so we can reach you about this request.'
+    return
+  }
   submitting.value = true
   try {
     await store.request(form.value)
@@ -116,6 +151,11 @@ async function submit() {
       </div>
       <Button v-if="!onboarding" @click="openModal"><Plus class="size-4" /> Request sender ID</Button>
     </div>
+
+    <!-- KYC backfill. The ONLY capture path for an account created before this was
+         required: they already have a sender ID, so the request form — where these fields
+         otherwise live — is never shown to them again. -->
+    <KycNotice class="mt-6" />
 
     <!-- Onboarding — shown when the router redirected a brand-new account here from compose -->
     <div v-if="onboarding" class="mt-6 rounded-xl border bg-card p-6 shadow-sm sm:p-8">
@@ -232,6 +272,44 @@ async function submit() {
         <div class="grid gap-1.5">
           <Label for="sid-sample">Sample message</Label>
           <Textarea id="sid-sample" v-model="form.sample" :rows="3" placeholder="An example of a message you'll send from this sender ID." />
+        </div>
+
+        <!-- KYC. Shown only when we don't already hold these, so nobody is asked twice —
+             the same login across Sendr, TailoredFlow or a worker invite is one person. -->
+        <div v-if="needsGhanaCard || needsPhone" class="grid gap-4 rounded-lg border bg-muted/30 p-4">
+          <p class="text-xs text-muted-foreground">
+            Networks require a verified identity behind a sender name, so we need these
+            once before your first sender ID can be registered.
+          </p>
+
+          <div v-if="needsGhanaCard" class="grid gap-1.5">
+            <Label for="sid-ghana-card">Ghana Card number</Label>
+            <Input
+              id="sid-ghana-card"
+              v-model="form.ghanaCardNumber"
+              placeholder="GHA-123456789-0"
+              autocomplete="off"
+              class="max-w-xs"
+            />
+            <span :class="ghanaCardError ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'">
+              {{ ghanaCardError ?? 'As printed on your Ghana Card.' }}
+            </span>
+          </div>
+
+          <div v-if="needsPhone" class="grid gap-1.5">
+            <Label for="sid-phone">Mobile number</Label>
+            <Input
+              id="sid-phone"
+              v-model="form.phone"
+              placeholder="0245045867"
+              autocomplete="tel"
+              inputmode="tel"
+              class="max-w-xs"
+            />
+            <span class="text-xs text-muted-foreground">
+              We'll text you here when your sender ID is approved.
+            </span>
+          </div>
         </div>
 
         <p v-if="submitError" class="text-sm text-destructive">{{ submitError }}</p>
