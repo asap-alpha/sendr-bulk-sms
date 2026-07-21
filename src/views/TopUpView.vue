@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Check, ArrowUpRight, ArrowDownLeft } from 'lucide-vue-next'
 import { useWallet } from '@/stores/wallet'
 import { useAuth } from '@/stores/auth'
@@ -52,6 +52,28 @@ const done = ref<number | null>(null)
 const error = ref('')
 const statusHint = ref('')
 
+// OTP step: 'form' collects the top-up details, 'otp' verifies the MoMo number
+// (code sent via SMS) before we fire the Hubtel prompt. Mirrors the subscribe flow.
+const otpStep = ref<'form' | 'otp'>('form')
+const otpCode = ref('')
+const otpSending = ref(false)
+const verifying = ref(false)
+const resendIn = ref(0)
+let resendTimer: ReturnType<typeof setInterval> | null = null
+function clearResendTimer() {
+  if (resendTimer) { clearInterval(resendTimer); resendTimer = null }
+}
+function startResendTimer() {
+  resendIn.value = 60
+  clearResendTimer()
+  resendTimer = setInterval(() => {
+    if (resendIn.value > 0) resendIn.value--
+    else clearResendTimer()
+  }, 1000)
+}
+// Kill the interval when the page unmounts so it can't tick on a torn-down component.
+onUnmounted(clearResendTimer)
+
 const amount = computed(() => {
   if (custom.value.trim()) {
     const n = Number(custom.value)
@@ -66,6 +88,7 @@ const estSms = computed(() => smsFor(amount.value))
 const momoValid = computed(() => normalizePhone(momoNumber.value).valid)
 const activeNetwork = computed(() => networks.find((n) => n.id === network.value)!)
 const canPay = computed(() => amount.value > 0 && momoValid.value && !processing.value)
+const canSend = computed(() => amount.value > 0 && momoValid.value && !otpSending.value)
 
 function pick(v: number) {
   selected.value = v
@@ -93,6 +116,74 @@ async function pollStatus(clientReference: string): Promise<string> {
     }
   }
   return 'pending'
+}
+
+// Request (or resend) an OTP for the MoMo number, then move to the verify step.
+// On the 60s cooldown (429) a code was already sent, so we STILL advance to the
+// code step — dead-ending on the form would hide a code the user already has.
+async function requestOtp() {
+  otpSending.value = true
+  error.value = ''
+  try {
+    await api.post('/api/otp/send', { phone: momoNumber.value.trim() })
+    otpStep.value = 'otp'
+    startResendTimer()
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 429) {
+      otpStep.value = 'otp'
+      error.value = e.message
+      startResendTimer()
+    } else {
+      error.value = e instanceof ApiError ? e.message : 'Could not send the code. Please try again.'
+    }
+  } finally {
+    otpSending.value = false
+  }
+}
+
+// Step 1: validate details, then request the code.
+async function sendCode() {
+  if (!canSend.value) return
+  otpCode.value = ''
+  await requestOtp()
+}
+
+async function resendCode() {
+  if (resendIn.value > 0 || otpSending.value) return
+  await requestOtp()
+}
+
+function changeNumber() {
+  otpStep.value = 'form'
+  otpCode.value = ''
+  error.value = ''
+}
+
+// Step 2: verify the code, then run the existing charge + poll. The backend
+// re-checks verification, so a bad code never reaches Hubtel.
+async function verifyAndPay() {
+  if (otpCode.value.trim().length !== 6) {
+    error.value = 'Enter the 6-digit code we sent you.'
+    return
+  }
+  verifying.value = true
+  error.value = ''
+  try {
+    const v = await api.post<{ verified: boolean; message: string }>('/api/otp/verify', {
+      phone: momoNumber.value.trim(),
+      code: otpCode.value.trim(),
+    })
+    if (!v?.verified) {
+      error.value = v?.message || 'That code was not correct. Try again.'
+      return
+    }
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : 'Verification failed. Please try again.'
+    return
+  } finally {
+    verifying.value = false
+  }
+  await pay()
 }
 
 async function pay() {
@@ -135,6 +226,8 @@ async function pay() {
 function again() {
   done.value = null
   error.value = ''
+  otpStep.value = 'form'
+  otpCode.value = ''
 }
 </script>
 
@@ -149,6 +242,7 @@ function again() {
       <!-- Top-up form -->
       <div class="rounded-xl border bg-card p-6 shadow-sm">
         <template v-if="done === null">
+          <template v-if="otpStep === 'form'">
           <h2 class="text-sm font-medium">Choose an amount ({{ CURRENCY }})</h2>
           <div class="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-5">
             <button
@@ -207,10 +301,39 @@ function again() {
               <div class="text-2xl font-semibold">{{ formatCurrency(amount) }}</div>
               <div v-if="estSms !== null" class="text-xs text-muted-foreground">≈ {{ formatNumber(estSms) }} single-segment SMS</div>
             </div>
-            <Button size="lg" :disabled="!canPay" @click="pay">
-              {{ processing ? 'Processing…' : `Pay ${formatCurrency(amount)}` }}
+            <Button size="lg" :disabled="!canSend" @click="sendCode">
+              {{ otpSending ? 'Sending…' : 'Send code' }}
             </Button>
           </div>
+          </template>
+
+          <!-- OTP verify step: confirm control of the MoMo number before charging -->
+          <template v-else>
+            <button class="text-sm font-medium text-primary" @click="changeNumber">&larr; Change details</button>
+            <h2 class="mt-4 text-sm font-medium">Verify your number</h2>
+            <p class="mt-1 text-sm text-muted-foreground">
+              We sent a 6-digit code to <span class="font-medium text-foreground">{{ momoNumber.trim() }}</span>. Enter it below to confirm this is your number.
+            </p>
+            <div class="mt-4 grid max-w-xs gap-1.5">
+              <label class="text-sm font-medium">Verification code</label>
+              <Input v-model="otpCode" inputmode="numeric" maxlength="6" placeholder="123456" />
+            </div>
+            <div class="mt-3 flex items-center gap-4 text-sm">
+              <span class="text-muted-foreground">{{ resendIn > 0 ? `Resend in ${resendIn}s` : 'Didn’t get it?' }}</span>
+              <button class="font-medium text-primary disabled:text-muted-foreground" :disabled="resendIn > 0 || otpSending" @click="resendCode">Resend code</button>
+            </div>
+            <p v-if="statusHint && !error" class="mt-4 rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">{{ statusHint }}</p>
+            <p v-if="error" class="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{{ error }}</p>
+            <div class="mt-6 flex items-center justify-between border-t pt-4">
+              <div>
+                <div class="text-sm text-muted-foreground">You'll pay</div>
+                <div class="text-2xl font-semibold">{{ formatCurrency(amount) }}</div>
+              </div>
+              <Button size="lg" :disabled="processing || verifying || otpCode.trim().length !== 6" @click="verifyAndPay">
+                {{ processing ? 'Processing…' : verifying ? 'Verifying…' : `Verify & pay ${formatCurrency(amount)}` }}
+              </Button>
+            </div>
+          </template>
         </template>
 
         <!-- Success -->
