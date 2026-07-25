@@ -7,6 +7,12 @@ export const routes: RouteRecordRaw[] = [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     { path: '/signup', name: 'signup', component: () => import('@/views/SignupView.vue'), meta: { public: true } },
     {
+      path: '/forgot-password',
+      name: 'forgotPassword',
+      component: () => import('@/views/ForgotPasswordView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/app',
       component: () => import('@/layouts/AppLayout.vue'),
       children: [

@@ -67,7 +67,15 @@ async function google() {
         <Input id="email" v-model="email" type="email" placeholder="you@company.com" />
       </div>
       <div class="grid gap-1.5">
-        <Label for="password">Password</Label>
+        <div class="flex items-baseline justify-between">
+          <Label for="password">Password</Label>
+          <RouterLink
+            :to="{ name: 'forgotPassword', query: email.trim() ? { email: email.trim() } : {} }"
+            class="text-sm font-medium text-primary hover:underline"
+          >
+            Forgot password?
+          </RouterLink>
+        </div>
         <PasswordInput id="password" v-model="password" placeholder="••••••••" />
       </div>
 
