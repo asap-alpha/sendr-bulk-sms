@@ -2,6 +2,7 @@ import { computed, reactive } from 'vue'
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -158,6 +159,24 @@ export function useAuth() {
     await api.post('/api/users/resend-verification')
   }
 
+  /**
+   * Send a password-reset email. Unlike the verification email (which the backend sends
+   * Resend-branded via register-sendr), there's no backend reset endpoint — this goes
+   * through Firebase's own template, and the link lands on Firebase's hosted reset page.
+   * `continueUrl` puts a "Continue" link back to our sign-in screen on that page.
+   *
+   * Never reveals whether the address is registered: an unknown email resolves silently,
+   * so the caller can show the same "check your inbox" message either way.
+   */
+  async function sendPasswordReset(email: string) {
+    try {
+      await sendPasswordResetEmail(auth, email, { url: `${window.location.origin}/login`, handleCodeInApp: false })
+    } catch (e) {
+      if ((e as { code?: string })?.code === 'auth/user-not-found') return
+      throw e
+    }
+  }
+
   // Re-check verification with Firebase (after the user clicks the link in another tab) and
   // sync it into our user state. Returns the fresh verified flag.
   async function refreshVerification(): Promise<boolean> {
@@ -177,6 +196,7 @@ export function useAuth() {
     signup,
     loginWithGoogle,
     logout,
+    sendPasswordReset,
     resendVerification,
     refreshVerification,
   }
