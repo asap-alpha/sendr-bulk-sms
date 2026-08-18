@@ -17,6 +17,9 @@ const sent = ref<{ recipients: number; review: boolean; scheduled: boolean; sche
 const error = ref('')
 
 const remaining = computed(() => store.wallet.balance.value - store.totalCost.value)
+// Either the local worst-case rescan or the server estimate is still settling, so the
+// figure on screen isn't final yet.
+const pricingBusy = computed(() => store.worstPending.value || store.estimatePending.value)
 
 // Earliest selectable time for the datetime-local input, in the local "YYYY-MM-DDTHH:mm" format.
 function toLocalInput(d: Date): string {
@@ -123,8 +126,24 @@ function reset() {
 
         <div class="flex items-center justify-between text-base">
           <span class="font-medium">Total</span>
-          <span class="font-semibold">{{ formatCurrency(store.totalCost.value) }}</span>
+          <span class="font-semibold" :class="pricingBusy ? 'text-muted-foreground' : ''">
+            {{ formatCurrency(store.totalCost.value) }}
+          </span>
         </div>
+        <p v-if="pricingBusy" class="text-right text-xs text-muted-foreground">Working out the exact cost…</p>
+        <p v-else-if="!store.costIsExact.value" class="text-right text-xs text-muted-foreground">
+          Estimated maximum — the final charge may be lower.
+        </p>
+
+        <!-- The backend drops rows the client can't detect (e.g. a row missing a column
+             the message references), so say so rather than quoting a count that won't send. -->
+        <p v-if="store.droppedByServer.value" class="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <AlertCircle class="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            {{ formatNumber(store.droppedByServer.value) }} recipient(s) will be skipped — either the
+            number isn't valid or the row is missing a column your message uses.
+          </span>
+        </p>
 
         <div
           class="flex items-center justify-between rounded-lg px-3 py-2"
@@ -191,6 +210,7 @@ function reset() {
           <template v-else-if="store.messageHasEmoji.value">Remove emoji from your message.</template>
           <template v-else-if="!store.hasApprovedSender.value">Select an approved sender ID.</template>
           <template v-else-if="store.scheduled.value && !store.scheduleAt.value">Pick a date and time.</template>
+          <template v-else-if="pricingBusy">Working out the final cost…</template>
           <template v-else>Resolve the warning above to send.</template>
         </p>
       </div>

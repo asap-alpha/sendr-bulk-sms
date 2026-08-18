@@ -12,6 +12,7 @@ import {
 import { auth, googleProvider } from '@/lib/firebase'
 import { api } from '@/lib/api'
 import { resetSenderIds } from '@/stores/senderIds'
+import { resetApiKeys } from '@/stores/apiKeys'
 
 /**
  * Auth store (module singleton), backed by Firebase Auth.
@@ -95,6 +96,7 @@ onAuthStateChanged(auth, async (fbUser) => {
     } else if (!fbUser) {
       state.user = null
       resetSenderIds()
+      resetApiKeys()
     }
   } catch {
     // If we can't confirm the profile, treat the session as signed-out rather than
@@ -151,6 +153,9 @@ export function useAuth() {
     // Clear per-account caches so the next user to sign in on this device is assessed
     // fresh — otherwise they'd inherit the previous user's sender IDs and skip onboarding.
     resetSenderIds()
+    // API keys especially: leaving another account's credentials listed on a shared device
+    // is a disclosure, not just a stale cache.
+    resetApiKeys()
   }
 
   // Ask the backend to re-send the Sendr verification email (no-op server-side if already

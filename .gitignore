@@ -9,6 +9,8 @@ node_modules
 dist
 dist-ssr
 *.local
+# Incremental TypeScript build state (vue-tsc -b) — regenerated on every build
+*.tsbuildinfo
 
 # Env — keep .env.example tracked, ignore real env files (they hold per-deploy config)
 .env
