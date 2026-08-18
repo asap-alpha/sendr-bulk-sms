@@ -83,7 +83,7 @@ curl_setopt_array($ch, [
 $response = json_decode(curl_exec($ch), true);
 curl_close($ch);
 
-echo $response["data"]["messages"][0]["status"]; // "sent"`,
+echo $response["data"]["status"]; // "sent" — and ["messageId"] is the tracking handle`,
 
     python: `import requests
 
@@ -99,7 +99,7 @@ res = requests.post(
 )
 
 data = res.json()["data"]
-print(data["messages"][0]["status"])  # "sent"`,
+print(data["messageId"], data["status"])  # the tracking handle, and "sent"`,
   }
 }
 
