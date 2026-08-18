@@ -96,11 +96,13 @@ export function useApiKeys() {
    * Create a key. Returns the plaintext secret to the CALLER, who must show it once and
    * then let it go — it is intentionally not written into the store.
    */
-  async function create(input: { name: string; mode: ApiKeyMode; allowedIps: string[] }): Promise<string> {
+  async function create(input: { name: string }): Promise<string> {
     const created = await api.post<CreatedResponse>('/api/sms/api-keys', {
       name: input.name.trim() || undefined,
-      mode: input.mode,
-      allowedIps: input.allowedIps.length ? input.allowedIps : undefined,
+      // Live only — test keys send nothing, so we don't offer them. `allowedIps` is
+      // omitted deliberately (the server then allows any address); the IP allowlist isn't
+      // used. Existing keys created with either still read back fine via mapKey.
+      mode: 'live' satisfies ApiKeyMode,
     })
     await refresh()
     return created.secret
