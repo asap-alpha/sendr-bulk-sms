@@ -16,7 +16,13 @@ export const LANGUAGES = [
 export type LanguageId = (typeof LANGUAGES)[number]['id']
 
 export interface SnippetContext {
-  /** The API origin, e.g. https://api.cheqam.com — no trailing slash. */
+  /**
+   * The API origin, e.g. https://api.cheqam.com — no trailing slash.
+   *
+   * Samples target "/api/v1", not the prettier "/v1", because that is the path the
+   * production reverse proxy actually forwards to the service. The server answers on both,
+   * so publishing the one that is guaranteed reachable means a copied sample always runs.
+   */
   baseUrl: string
   /** One of the account's approved sender IDs, so the sample is runnable as-is. */
   senderId: string
@@ -34,12 +40,12 @@ export function singleSend({ baseUrl, senderId }: SnippetContext): Record<Langua
   }`
 
   return {
-    curl: `curl -X POST ${baseUrl}/v1/messages \\
+    curl: `curl -X POST ${baseUrl}/api/v1/messages \\
   -H "Authorization: Bearer ${KEY}" \\
   -H "Content-Type: application/json" \\
   -d '${body}'`,
 
-    node: `const res = await fetch("${baseUrl}/v1/messages", {
+    node: `const res = await fetch("${baseUrl}/api/v1/messages", {
   method: "POST",
   headers: {
     Authorization: "Bearer ${KEY}",
@@ -58,7 +64,7 @@ const { data } = await res.json()
 console.log(data.messages[0].status) // "sent"`,
 
     php: `<?php
-$ch = curl_init("${baseUrl}/v1/messages");
+$ch = curl_init("${baseUrl}/api/v1/messages");
 curl_setopt_array($ch, [
     CURLOPT_POST => true,
     CURLOPT_RETURNTRANSFER => true,
@@ -82,7 +88,7 @@ echo $response["data"]["messages"][0]["status"]; // "sent"`,
     python: `import requests
 
 res = requests.post(
-    "${baseUrl}/v1/messages",
+    "${baseUrl}/api/v1/messages",
     headers={"Authorization": "Bearer ${KEY}"},
     json={
         "to": "0244000000",
@@ -100,7 +106,7 @@ print(data["messages"][0]["status"])  # "sent"`,
 // ── Send to many ─────────────────────────────────────────────────────────────
 export function bulkSend({ baseUrl, senderId }: SnippetContext): Record<LanguageId, string> {
   return {
-    curl: `curl -X POST ${baseUrl}/v1/messages \\
+    curl: `curl -X POST ${baseUrl}/api/v1/messages \\
   -H "Authorization: Bearer ${KEY}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -109,7 +115,7 @@ export function bulkSend({ baseUrl, senderId }: SnippetContext): Record<Language
     "content": "We are open late this Friday until 9pm."
   }'`,
 
-    node: `const res = await fetch("${baseUrl}/v1/messages", {
+    node: `const res = await fetch("${baseUrl}/api/v1/messages", {
   method: "POST",
   headers: {
     Authorization: "Bearer ${KEY}",
@@ -127,7 +133,7 @@ const { data } = await res.json()
 console.log(data.batchId, data.accepted, data.cost)`,
 
     php: `<?php
-$ch = curl_init("${baseUrl}/v1/messages");
+$ch = curl_init("${baseUrl}/api/v1/messages");
 curl_setopt_array($ch, [
     CURLOPT_POST => true,
     CURLOPT_RETURNTRANSFER => true,
@@ -150,7 +156,7 @@ echo $data["batchId"]; // keep this to check on the send`,
     python: `import requests
 
 res = requests.post(
-    "${baseUrl}/v1/messages",
+    "${baseUrl}/api/v1/messages",
     headers={"Authorization": "Bearer ${KEY}"},
     json={
         "to": numbers,  # a list — up to 10,000 per request
@@ -167,7 +173,7 @@ print(data["batchId"], data["accepted"], data["cost"])`,
 // ── Personalised send ────────────────────────────────────────────────────────
 export function personalisedSend({ baseUrl, senderId }: SnippetContext): Record<LanguageId, string> {
   return {
-    curl: `curl -X POST ${baseUrl}/v1/messages \\
+    curl: `curl -X POST ${baseUrl}/api/v1/messages \\
   -H "Authorization: Bearer ${KEY}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -179,7 +185,7 @@ export function personalisedSend({ baseUrl, senderId }: SnippetContext): Record<
     "content": "Hi {{name}}, your balance is {{amount}}."
   }'`,
 
-    node: `const res = await fetch("${baseUrl}/v1/messages", {
+    node: `const res = await fetch("${baseUrl}/api/v1/messages", {
   method: "POST",
   headers: {
     Authorization: "Bearer ${KEY}",
@@ -208,7 +214,7 @@ curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
 ]));`,
 
     python: `res = requests.post(
-    "${baseUrl}/v1/messages",
+    "${baseUrl}/api/v1/messages",
     headers={"Authorization": "Bearer ${KEY}"},
     json={
         "recipients": [
@@ -226,14 +232,14 @@ curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
 export function checkStatus({ baseUrl }: SnippetContext): Record<LanguageId, string> {
   return {
     curl: `# The whole send
-curl ${baseUrl}/v1/batches/BATCH_ID \\
+curl ${baseUrl}/api/v1/batches/BATCH_ID \\
   -H "Authorization: Bearer ${KEY}"
 
 # Or one number
-curl ${baseUrl}/v1/messages/MESSAGE_ID \\
+curl ${baseUrl}/api/v1/messages/MESSAGE_ID \\
   -H "Authorization: Bearer ${KEY}"`,
 
-    node: `const res = await fetch(\`${baseUrl}/v1/batches/\${batchId}\`, {
+    node: `const res = await fetch(\`${baseUrl}/api/v1/batches/\${batchId}\`, {
   headers: { Authorization: "Bearer ${KEY}" },
 })
 
@@ -241,7 +247,7 @@ const { data } = await res.json()
 console.log(data.delivered, "of", data.totalRecipients, "delivered")`,
 
     php: `<?php
-$ch = curl_init("${baseUrl}/v1/batches/" . $batchId);
+$ch = curl_init("${baseUrl}/api/v1/batches/" . $batchId);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_HTTPHEADER => ["Authorization: Bearer ${KEY}"],
@@ -253,7 +259,7 @@ curl_close($ch);
 echo "{$data['delivered']} of {$data['totalRecipients']} delivered";`,
 
     python: `res = requests.get(
-    f"${baseUrl}/v1/batches/{batch_id}",
+    f"${baseUrl}/api/v1/batches/{batch_id}",
     headers={"Authorization": "Bearer ${KEY}"},
 )
 
@@ -265,10 +271,10 @@ print(data["delivered"], "of", data["totalRecipients"], "delivered")`,
 // ── Balance ──────────────────────────────────────────────────────────────────
 export function balance({ baseUrl }: SnippetContext): Record<LanguageId, string> {
   return {
-    curl: `curl ${baseUrl}/v1/balance \\
+    curl: `curl ${baseUrl}/api/v1/balance \\
   -H "Authorization: Bearer ${KEY}"`,
 
-    node: `const res = await fetch("${baseUrl}/v1/balance", {
+    node: `const res = await fetch("${baseUrl}/api/v1/balance", {
   headers: { Authorization: "Bearer ${KEY}" },
 })
 
@@ -276,7 +282,7 @@ const { data } = await res.json()
 if (data.balance < 20) notifyFinanceTeam(data.balance)`,
 
     php: `<?php
-$ch = curl_init("${baseUrl}/v1/balance");
+$ch = curl_init("${baseUrl}/api/v1/balance");
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_HTTPHEADER => ["Authorization: Bearer ${KEY}"],
@@ -288,7 +294,7 @@ curl_close($ch);
 echo $data["balance"]; // remaining GHS`,
 
     python: `res = requests.get(
-    "${baseUrl}/v1/balance",
+    "${baseUrl}/api/v1/balance",
     headers={"Authorization": "Bearer ${KEY}"},
 )
 

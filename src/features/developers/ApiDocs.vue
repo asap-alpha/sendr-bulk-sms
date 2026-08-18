@@ -42,6 +42,7 @@ const errors = [
   { status: '403', code: 'api_disabled', meaning: 'API access was withdrawn for this account.' },
   { status: '404', code: 'not_found', meaning: 'No message or batch with that id.' },
   { status: '422', code: 'invalid_request', meaning: 'Bad numbers, empty content, unsupported characters.' },
+  { status: '409', code: 'conflict', meaning: 'Another request with this clientReference is still running. Retry the SAME reference.' },
   { status: '429', code: 'rate_limited', meaning: 'Over 120 requests a minute. Batch your recipients.' },
   { status: '503', code: 'service_unavailable', meaning: 'Temporary. Retry with backoff.' },
 ]
@@ -54,7 +55,7 @@ const errors = [
       <div>
         <h2 class="text-lg font-semibold">API reference</h2>
         <p class="text-sm text-muted-foreground">
-          Base URL <code class="font-mono text-xs">{{ baseUrl }}</code> · authenticate with
+          Base URL <code class="font-mono text-xs">{{ baseUrl }}/api/v1</code> · authenticate with
           <code class="font-mono text-xs">Authorization: Bearer sk_live_…</code>
         </p>
       </div>
@@ -88,7 +89,9 @@ const errors = [
       <div class="mt-3 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
         <span class="font-medium text-foreground">clientReference</span> is your own id for the
         send. If your request times out and you retry with the same one, we return the original
-        result instead of texting the person twice or charging you twice.
+        result instead of texting the person twice or charging you twice — even if both attempts
+        land at the same moment. If a send fails, its reference is freed straight away, so
+        retrying with the same one after topping up works normally.
       </div>
     </section>
 

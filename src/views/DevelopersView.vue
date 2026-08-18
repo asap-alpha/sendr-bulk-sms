@@ -388,7 +388,9 @@ async function confirmRevoke() {
 
     <!-- Reveal-once modal. Not dismissible by accident: no backdrop close, one explicit
          button, because after this the secret is gone for good. -->
-    <Modal :open="!!revealed" :title="`${revealedName} created`">
+    <!-- @close covers the X, the backdrop and Escape — all of which route through
+         dismissReveal so the secret leaves memory however the modal is dismissed. -->
+    <Modal :open="!!revealed" :title="`${revealedName} created`" @close="dismissReveal">
       <div class="space-y-4 p-5">
         <div class="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
           <ShieldAlert class="mt-0.5 size-4 shrink-0 text-[hsl(38_92%_40%)]" />
