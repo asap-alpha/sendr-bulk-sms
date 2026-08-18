@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { KeyRound, Plus, Copy, Check, Trash2, ShieldAlert, TerminalSquare, Info, Lock } from 'lucide-vue-next'
+import { KeyRound, Plus, Copy, Check, Trash2, ShieldAlert, Lock, Loader2, BookOpen } from 'lucide-vue-next'
 import { useApiKeys, type ApiKey, type ApiKeyMode } from '@/stores/apiKeys'
-import { useSenderIds } from '@/stores/senderIds'
-import { ApiError } from '@/lib/api'
+import { useSenderIds, senderIdsReady } from '@/stores/senderIds'
+import { useAuth } from '@/stores/auth'
+import { api, ApiError } from '@/lib/api'
 import { formatDate, timeAgo } from '@/lib/utils'
 import Button from '@/components/ui/Button.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -11,16 +12,20 @@ import Input from '@/components/ui/Input.vue'
 import Label from '@/components/ui/Label.vue'
 import Modal from '@/components/ui/Modal.vue'
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue'
+import ApiDocs from '@/features/developers/ApiDocs.vue'
 
 const store = useApiKeys()
 const senderIds = useSenderIds()
+const { user } = useAuth()
 
 const loading = ref(true)
 const loadError = ref('')
 
 onMounted(async () => {
   try {
-    await store.refresh()
+    // Sender IDs decide the first checklist step and fill the code samples, so both reads
+    // have to land before the page can say anything true about where you are.
+    await Promise.all([store.refresh(), senderIdsReady()])
   } catch (e) {
     loadError.value = e instanceof ApiError ? e.message : "Couldn't load your API keys."
   } finally {
@@ -28,9 +33,104 @@ onMounted(async () => {
   }
 })
 
-// The first approved sender ID, used to make the quickstart snippet copy-paste runnable
-// rather than a template the reader has to fill in.
+const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+// A real approved sender ID makes every sample runnable as-is; the placeholder is only
+// ever seen by an account that has none, which is also the account the checklist is
+// telling to go and get one.
 const sampleSender = computed(() => senderIds.approved.value[0]?.name ?? 'YourSenderID')
+
+// ── Access checklist ───────────────────────────────────────────────────────
+// The old version numbered three steps and left them all looking untouched, so an account
+// that already had an approved sender ID was told to go and do it again. Each step now
+// reports its real state, and only one of them is ever "your move".
+type StepState = 'done' | 'active' | 'waiting' | 'todo'
+
+const hasApprovedSender = computed(() => senderIds.approved.value.length > 0)
+const hasPendingSender = computed(() => senderIds.pending.value.length > 0)
+
+// "We asked" is client-side memory — the server has no request record, and inventing one
+// would be a bigger feature than this deserves. Keyed by account so a shared browser
+// doesn't show one person's request to another.
+const requestedKey = computed(() => `sendr.apiAccessRequested.${user.value?.email ?? 'anon'}`)
+const requestedAt = ref<number | null>(null)
+onMounted(() => {
+  const raw = localStorage.getItem(requestedKey.value)
+  requestedAt.value = raw ? Number(raw) || null : null
+})
+
+const steps = computed<{ title: string; detail: string; state: StepState }[]>(() => {
+  const senderState: StepState = hasApprovedSender.value ? 'done' : hasPendingSender.value ? 'waiting' : 'active'
+  const accessState: StepState = store.enabled.value
+    ? 'done'
+    : !hasApprovedSender.value
+      ? 'todo'
+      : requestedAt.value
+        ? 'waiting'
+        : 'active'
+  const keyState: StepState = store.items.value.length ? 'done' : store.enabled.value ? 'active' : 'todo'
+
+  return [
+    {
+      title: 'Get a sender ID approved',
+      detail:
+        senderState === 'done'
+          ? `${sampleSender.value} is approved and ready to send from.`
+          : senderState === 'waiting'
+            ? 'Your request is with the networks — usually 1–2 business days.'
+            : 'The short name recipients see instead of a phone number.',
+      state: senderState,
+    },
+    {
+      title: 'Turn on API access',
+      detail:
+        accessState === 'done'
+          ? 'Enabled for this account.'
+          : accessState === 'waiting'
+            ? `Requested ${timeAgo(requestedAt.value!)} — we'll email you when it's on.`
+            : accessState === 'active'
+              ? 'One quick check by our team, because API messages send without review.'
+              : 'Available once your sender ID is approved.',
+      state: accessState,
+    },
+    {
+      title: 'Create your first key',
+      detail:
+        keyState === 'done'
+          ? 'Done — your key is listed below.'
+          : keyState === 'active'
+            ? 'Then start sending. Test keys cost nothing.'
+            : 'The credential your server sends with each request.',
+      state: keyState,
+    },
+  ]
+})
+
+// ── Request access ─────────────────────────────────────────────────────────
+const requesting = ref(false)
+const requestError = ref('')
+
+async function requestAccess() {
+  if (requesting.value) return
+  requesting.value = true
+  requestError.value = ''
+  try {
+    await api.post('/api/support/send', {
+      userName: user.value?.name ?? 'Sendr user',
+      userEmail: user.value?.email ?? '',
+      category: 'account',
+      message:
+        `Please enable developer API access for my Sendr account.\n\n` +
+        `Approved sender ID: ${sampleSender.value}\n` +
+        `Account email: ${user.value?.email ?? '(unknown)'}`,
+    })
+    requestedAt.value = Date.now()
+    localStorage.setItem(requestedKey.value, String(requestedAt.value))
+  } catch (e) {
+    requestError.value = e instanceof ApiError ? e.message : "Couldn't send the request. Please email support instead."
+  } finally {
+    requesting.value = false
+  }
+}
 
 // ── Create ─────────────────────────────────────────────────────────────────
 const createOpen = ref(false)
@@ -110,20 +210,6 @@ async function confirmRevoke() {
     revoking.value = false
   }
 }
-
-// ── Quickstart ─────────────────────────────────────────────────────────────
-const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-
-const curlSnippet = computed(
-  () => `curl -X POST ${apiBase}/v1/messages \\
-  -H "Authorization: Bearer sk_live_your_key" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "to": ["0244000000"],
-    "from": "${sampleSender.value}",
-    "content": "Your order is ready for pickup."
-  }'`,
-)
 </script>
 
 <template>
@@ -149,56 +235,80 @@ const curlSnippet = computed(
     </div>
 
     <template v-else>
-      <!-- Not granted. A "create" button that we know the server will refuse would be a
-           worse experience than saying plainly what the next step is. -->
-      <div v-if="!store.enabled.value" class="mt-6 rounded-xl border bg-card p-6 shadow-sm sm:p-8">
-        <div class="flex size-11 items-center justify-center rounded-full bg-primary/10">
-          <Lock class="size-5 text-primary" />
+      <!-- Progress. Shown until there's a key: once you're sending, a checklist of things
+           you've already done is just noise above the thing you came for. -->
+      <div v-if="!store.items.value.length" class="mt-6 rounded-xl border bg-card p-6 shadow-sm sm:p-8">
+        <div class="flex items-start gap-4">
+          <div class="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/10">
+            <Lock v-if="!store.enabled.value" class="size-5 text-primary" />
+            <KeyRound v-else class="size-5 text-primary" />
+          </div>
+          <div>
+            <h2 class="text-lg font-semibold">
+              {{ store.enabled.value ? 'You’re ready — create your first key' : 'Three steps to sending from your own systems' }}
+            </h2>
+            <p class="mt-1.5 max-w-prose text-sm text-muted-foreground">
+              The API lets your website, app or back-office send messages directly — order
+              confirmations, delivery alerts, one-time codes. Because those go out unattended,
+              we switch it on per account once your sender ID is approved.
+            </p>
+          </div>
         </div>
-        <h2 class="mt-4 text-lg font-semibold">API access isn't switched on yet</h2>
-        <p class="mt-1.5 max-w-prose text-sm text-muted-foreground">
-          The API lets your own website, app or back-office send messages directly — order
-          confirmations, delivery alerts, one-time codes. Because those messages go out
-          unattended, we enable it per account after your sender ID is approved.
-        </p>
-        <ul class="mt-5 space-y-2.5 text-sm text-muted-foreground">
-          <li class="flex items-start gap-2.5">
-            <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">1</span>
-            <span>Get a sender ID approved
-              <RouterLink :to="{ name: 'senderIds' }" class="text-primary underline-offset-4 hover:underline">on the Sender IDs page</RouterLink>.
+
+        <ol class="mt-6 space-y-4">
+          <li v-for="(s, i) in steps" :key="i" class="flex items-start gap-3">
+            <!-- The marker carries the state: a tick for done, a spinner for waiting on
+                 someone else, a filled number for what's yours to do next. -->
+            <span
+              class="mt-px flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+              :class="{
+                'bg-success/15 text-success': s.state === 'done',
+                'bg-primary text-primary-foreground': s.state === 'active',
+                'bg-warning/20 text-[hsl(38_92%_35%)]': s.state === 'waiting',
+                'bg-muted text-muted-foreground': s.state === 'todo',
+              }"
+            >
+              <Check v-if="s.state === 'done'" class="size-3.5" />
+              <Loader2 v-else-if="s.state === 'waiting'" class="size-3.5 animate-spin" />
+              <template v-else>{{ i + 1 }}</template>
             </span>
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-medium" :class="s.state === 'todo' && 'text-muted-foreground'">
+                  {{ s.title }}
+                </span>
+                <Badge v-if="s.state === 'done'" variant="success">Done</Badge>
+                <Badge v-else-if="s.state === 'waiting'" variant="warning">Waiting on us</Badge>
+                <Badge v-else-if="s.state === 'active'" variant="secondary">Your move</Badge>
+              </div>
+              <p class="mt-0.5 text-sm text-muted-foreground">{{ s.detail }}</p>
+
+              <!-- The action for whichever step is actually yours -->
+              <div v-if="s.state === 'active'" class="mt-2.5">
+                <RouterLink v-if="i === 0" :to="{ name: 'senderIds' }">
+                  <Button size="sm" variant="outline">Request a sender ID</Button>
+                </RouterLink>
+                <template v-else-if="i === 1">
+                  <Button size="sm" :disabled="requesting" @click="requestAccess">
+                    {{ requesting ? 'Sending…' : 'Request API access' }}
+                  </Button>
+                  <p v-if="requestError" class="mt-1.5 text-xs text-destructive">{{ requestError }}</p>
+                </template>
+                <Button v-else size="sm" @click="openCreate"><Plus class="size-4" /> Create API key</Button>
+              </div>
+            </div>
           </li>
-          <li class="flex items-start gap-2.5">
-            <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">2</span>
-            <span>Ask support to enable API access for your account.</span>
-          </li>
-          <li class="flex items-start gap-2.5">
-            <span class="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold">3</span>
-            <span>Create a key here and start sending.</span>
-          </li>
-        </ul>
+        </ol>
       </div>
 
-      <template v-else>
+      <template v-if="store.enabled.value">
         <p v-if="revokeError" class="mt-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {{ revokeError }}
         </p>
 
-        <!-- Empty -->
-        <div v-if="!store.items.value.length" class="mt-6 rounded-xl border border-dashed bg-card/50 p-10 text-center">
-          <div class="mx-auto flex size-11 items-center justify-center rounded-full bg-muted">
-            <KeyRound class="size-5 text-muted-foreground" />
-          </div>
-          <h2 class="mt-4 font-semibold">No API keys yet</h2>
-          <p class="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
-            Create one to start sending from your own systems. Test keys let you build the
-            integration before it costs anything.
-          </p>
-          <Button class="mt-5" @click="openCreate"><Plus class="size-4" /> Create API key</Button>
-        </div>
-
         <!-- Keys -->
-        <div v-else class="mt-6 space-y-3">
+        <div v-if="store.items.value.length" class="mt-6 space-y-3">
+          <h2 class="font-semibold">Your keys</h2>
           <div
             v-for="k in store.items.value"
             :key="k.id"
@@ -239,38 +349,20 @@ const curlSnippet = computed(
             </button>
           </div>
         </div>
-
-        <!-- Quickstart -->
-        <div class="mt-10">
-          <div class="flex items-center gap-2">
-            <TerminalSquare class="size-4 text-primary" />
-            <h2 class="font-semibold">Quickstart</h2>
-          </div>
-          <p class="mt-1.5 text-sm text-muted-foreground">
-            One request sends to one number or thousands. Up to 10 recipients come back with the
-            result immediately; larger sends return a <code class="font-mono text-xs">batchId</code> to check on.
-          </p>
-          <div class="relative mt-4">
-            <pre class="overflow-x-auto rounded-xl border bg-muted/40 p-4 text-xs leading-relaxed"><code>{{ curlSnippet }}</code></pre>
-            <button
-              class="absolute right-3 top-3 rounded-md border bg-card p-1.5 text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-              title="Copy"
-              @click="copy(curlSnippet, 'curl')"
-            >
-              <Check v-if="copied === 'curl'" class="size-4 text-success" />
-              <Copy v-else class="size-4" />
-            </button>
-          </div>
-          <div class="mt-4 flex items-start gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
-            <Info class="mt-0.5 size-4 shrink-0 text-primary" />
-            <p class="text-muted-foreground">
-              Check status with <code class="font-mono text-xs">GET /v1/batches/{{ '{id}' }}</code>, and your
-              balance with <code class="font-mono text-xs">GET /v1/balance</code>. Credit is topped up here in
-              the dashboard as usual — there's no separate API balance.
-            </p>
-          </div>
-        </div>
       </template>
+
+      <!-- Reference. Deliberately visible even before access is granted: someone deciding
+           whether to ask for it needs to see what they'd be getting, and the samples are
+           already filled in with this account's own sender ID. -->
+      <div class="mt-10 border-t pt-8">
+        <div v-if="!store.enabled.value" class="mb-6 flex items-start gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm">
+          <BookOpen class="mt-0.5 size-4 shrink-0 text-primary" />
+          <p class="text-muted-foreground">
+            Here's what you'll be able to do — have a read while your access is set up.
+          </p>
+        </div>
+        <ApiDocs :base-url="apiBase" :sender-id="sampleSender" />
+      </div>
     </template>
 
     <!-- Create modal -->
