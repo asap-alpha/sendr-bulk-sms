@@ -29,6 +29,7 @@ export const routes: RouteRecordRaw[] = [
         { path: 'sender-ids', name: 'senderIds', component: () => import('@/views/SenderIdsView.vue') },
         { path: 'reports', name: 'reports', component: () => import('@/views/ReportsView.vue') },
         { path: 'topup', name: 'topup', component: () => import('@/views/TopUpView.vue') },
+        { path: 'developers', name: 'developers', component: () => import('@/views/DevelopersView.vue') },
       ],
     },
   { path: '/:pathMatch(.*)*', redirect: { name: 'home' } },

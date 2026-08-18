@@ -18,6 +18,7 @@ const nav = [
   { name: 'campaigns', label: 'Campaigns' },
   { name: 'senderIds', label: 'Sender IDs' },
   { name: 'reports', label: 'Reports' },
+  { name: 'developers', label: 'Developers' },
 ]
 
 function initials(name: string) {

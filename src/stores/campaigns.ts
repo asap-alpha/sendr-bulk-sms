@@ -61,6 +61,25 @@ export interface CreateCampaignInput {
   scheduledAt?: string
 }
 
+/**
+ * Server-computed cost preview for a campaign, from POST /api/sms/campaigns/estimate.
+ *
+ * This is the SAME code path the charge uses (BuildMessages), so `estimatedCost` is the
+ * exact figure that will be debited — not an approximation. It also reports recipients the
+ * backend will drop that the client can't know about locally (a row missing a {{column}}
+ * the message references), so the quoted count matches what actually sends.
+ */
+export interface CampaignEstimate {
+  totalRecipients: number
+  totalParts: number
+  pricePerPart: number
+  estimatedCost: number
+  balance: number
+  affordable: boolean
+  invalidRecipients: number
+  skippedNoName: number
+}
+
 function mapStatus(s: string): CampaignStatus {
   switch (s) {
     case 'completed':
@@ -113,6 +132,11 @@ export function useCampaigns() {
     state.loaded = true
   }
 
+  // Cost preview — no side effects, no credit reserved. `signal` aborts a superseded call.
+  async function estimate(input: CreateCampaignInput, signal?: AbortSignal): Promise<CampaignEstimate> {
+    return api.post<CampaignEstimate>('/api/sms/campaigns/estimate', input, signal)
+  }
+
   async function create(input: CreateCampaignInput): Promise<Campaign> {
     const created = await api.post<SmsCampaign>('/api/sms/campaigns', input)
     const campaign = mapCampaign(created)
@@ -147,6 +171,7 @@ export function useCampaigns() {
     loaded: computed(() => state.loaded),
     totals,
     refresh,
+    estimate,
     create,
     cancel,
   }
