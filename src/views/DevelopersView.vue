@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { KeyRound, Plus, Copy, Check, Trash2, ShieldAlert, Lock, Loader2, BookOpen } from 'lucide-vue-next'
-import { useApiKeys, type ApiKey, type ApiKeyMode } from '@/stores/apiKeys'
+import { useApiKeys, type ApiKey } from '@/stores/apiKeys'
 import { useSenderIds, senderIdsReady } from '@/stores/senderIds'
 import { useAuth } from '@/stores/auth'
 import { api, ApiError } from '@/lib/api'
@@ -98,7 +98,7 @@ const steps = computed<{ title: string; detail: string; state: StepState }[]>(()
         keyState === 'done'
           ? 'Done — your key is listed below.'
           : keyState === 'active'
-            ? 'Then start sending. Test keys cost nothing.'
+            ? 'Then start sending from your own server.'
             : 'The credential your server sends with each request.',
       state: keyState,
     },
@@ -134,7 +134,7 @@ async function requestAccess() {
 
 // ── Create ─────────────────────────────────────────────────────────────────
 const createOpen = ref(false)
-const form = ref<{ name: string; mode: ApiKeyMode; allowedIps: string }>({ name: '', mode: 'live', allowedIps: '' })
+const form = ref<{ name: string }>({ name: '' })
 const creating = ref(false)
 const createError = ref('')
 
@@ -145,7 +145,7 @@ const revealed = ref('')
 const revealedName = ref('')
 
 function openCreate() {
-  form.value = { name: '', mode: 'live', allowedIps: '' }
+  form.value = { name: '' }
   createError.value = ''
   createOpen.value = true
 }
@@ -155,12 +155,7 @@ async function submitCreate() {
   createError.value = ''
   creating.value = true
   try {
-    const secret = await store.create({
-      name: form.value.name,
-      mode: form.value.mode,
-      // Free text in, list out — a merchant pasting "1.2.3.4, 5.6.7.8" means two addresses.
-      allowedIps: form.value.allowedIps.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
-    })
+    const secret = await store.create({ name: form.value.name })
     revealedName.value = form.value.name.trim() || 'New key'
     revealed.value = secret
     createOpen.value = false
@@ -376,33 +371,9 @@ async function confirmRevoke() {
           </p>
         </div>
 
-        <div>
-          <Label>Type</Label>
-          <div class="mt-1.5 grid grid-cols-2 gap-2">
-            <button
-              v-for="opt in (['live', 'test'] as ApiKeyMode[])"
-              :key="opt"
-              type="button"
-              class="rounded-lg border px-3 py-2.5 text-left text-sm transition-colors"
-              :class="form.mode === opt ? 'border-primary bg-primary/5' : 'hover:bg-accent'"
-              @click="form.mode = opt"
-            >
-              <span class="font-medium">{{ opt === 'live' ? 'Live' : 'Test' }}</span>
-              <span class="mt-0.5 block text-xs text-muted-foreground">
-                {{ opt === 'live' ? 'Sends real messages, uses credit' : 'Nothing sent, nothing charged' }}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <Label for="key-ips">Allowed IP addresses <span class="font-normal text-muted-foreground">(optional)</span></Label>
-          <Input id="key-ips" v-model="form.allowedIps" placeholder="41.66.0.1, 41.66.0.2" class="mt-1.5" />
-          <p class="mt-1.5 text-xs text-muted-foreground">
-            If your sends come from fixed servers, listing them here makes a stolen key useless
-            anywhere else. Leave empty to allow any address.
-          </p>
-        </div>
+        <p class="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+          This key sends real messages and uses your SMS credit.
+        </p>
 
         <p v-if="createError" class="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {{ createError }}
