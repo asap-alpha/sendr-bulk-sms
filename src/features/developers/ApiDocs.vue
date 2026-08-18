@@ -80,10 +80,13 @@ const errors = [
         <h3 class="font-semibold">Send one message</h3>
       </div>
       <p class="mt-1.5 max-w-prose text-sm text-muted-foreground">
-        For one-time codes, order confirmations and alerts. A send of ten recipients or fewer
-        goes out <span class="font-medium text-foreground">while your request is open</span>, so
-        the response already tells you whether the network accepted it — no second call, nothing
-        to poll. That's what makes this usable for login codes.
+        For one-time codes, order confirmations and alerts. Send one number and you get
+        <span class="font-medium text-foreground">the message back</span> — a
+        <code class="font-mono text-xs">messageId</code> and its status, not a batch to unwrap.
+        A send of ten recipients or fewer goes out
+        <span class="font-medium text-foreground">while your request is open</span>, so the
+        response already tells you whether the network accepted it — no second call, nothing to
+        poll. That's what makes this usable for login codes.
       </p>
       <CodeBlock class="mt-4" :code="single" />
       <div class="mt-3 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
@@ -102,9 +105,9 @@ const errors = [
         <h3 class="font-semibold">Send to many</h3>
       </div>
       <p class="mt-1.5 max-w-prose text-sm text-muted-foreground">
-        Same endpoint — pass a list instead of a single number, up to 10,000 per request. Above
-        ten recipients the send is queued and you get a
-        <code class="font-mono text-xs">batchId</code> back immediately; duplicate numbers are
+        Same endpoint — pass a list instead of a single number, up to 10,000 per request. More
+        than one recipient returns a <code class="font-mono text-xs">batchId</code> instead of a
+        message; above ten, the send is queued and returns immediately. Duplicate numbers are
         collapsed and billed once.
       </p>
       <CodeBlock class="mt-4" :code="bulk" />

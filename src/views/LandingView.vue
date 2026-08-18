@@ -9,6 +9,10 @@ import {
   Wallet,
   ArrowRight,
   Check,
+  Code2,
+  KeyRound,
+  Repeat2,
+  Zap,
 } from 'lucide-vue-next'
 import { RouterLink } from 'vue-router'
 import Button from '@/components/ui/Button.vue'
@@ -26,7 +30,7 @@ const features = [
   {
     icon: Gauge,
     title: 'Cost transparency',
-    body: 'A live segment counter shows chars, encoding, and exact cost as you type — before a stray emoji doubles your bill.',
+    body: 'A live segment counter shows chars, encoding, and exact cost as you type, before a stray emoji doubles your bill.',
   },
   {
     icon: FileSpreadsheet,
@@ -36,7 +40,7 @@ const features = [
   {
     icon: CalendarClock,
     title: 'Schedule sends',
-    body: 'Queue campaigns for the perfect moment. Upload, write, pick a time — done.',
+    body: 'Queue campaigns for the perfect moment. Upload, write, pick a time.',
   },
   {
     icon: ShieldCheck,
@@ -52,6 +56,35 @@ const features = [
     icon: Wallet,
     title: 'Prepaid credit',
     body: 'Top up with Mobile Money or card. You only ever spend what you load.',
+  },
+]
+
+// The real contract (POST /v1/messages), not an illustrative one — the fields match
+// ApiSendSmsRequest exactly, so anyone who copies this gets a working call.
+const curlSample = `curl -X POST https://api.cheqam.com/v1/messages/send \\
+  -H "Authorization: Bearer sk_live_..." \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "to": "0240000000",
+    "from": "Sendr",
+    "content": "Your verification code is 481920."
+  }'`
+
+const apiPoints = [
+  {
+    icon: Zap,
+    title: 'One call to send',
+    body: 'Send to one number or thousands in a single request. Small sends return the provider verdict inline, so there is nothing to poll for a login code.',
+  },
+  {
+    icon: KeyRound,
+    title: 'Same balance, same sender IDs',
+    body: 'Your API keys draw on the credit you already topped up and send from sender IDs you already had approved.',
+  },
+  {
+    icon: Repeat2,
+    title: 'Safe retries',
+    body: 'Pass a clientReference and a repeated request returns the original result instead of sending twice.',
   },
 ]
 
@@ -76,6 +109,7 @@ const steps = [
         <nav class="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           <a href="#features" class="hover:text-foreground">Features</a>
           <a href="#how" class="hover:text-foreground">How it works</a>
+          <a href="#api" class="hover:text-foreground">Developers</a>
           <a href="#pricing" class="hover:text-foreground">Pricing</a>
         </nav>
         <div class="flex items-center gap-2">
@@ -173,8 +207,52 @@ const steps = [
       </div>
     </section>
 
+    <!-- Developer API -->
+    <section id="api" class="mx-auto max-w-6xl px-4 py-16">
+      <div class="grid items-center gap-10 lg:grid-cols-2">
+        <div>
+          <Badge variant="secondary" class="mb-4 gap-1.5">
+            <Code2 class="size-3.5" /> Developer API
+          </Badge>
+          <h2 class="text-3xl font-semibold tracking-tight">Send from your own systems</h2>
+          <p class="mt-3 text-muted-foreground">
+            Order confirmations, one-time codes and alerts, straight from your backend.
+            No dashboard, no spreadsheet. Create a key on the Developers page and you're sending
+            in minutes.
+          </p>
+          <div class="mt-8 space-y-5">
+            <div v-for="a in apiPoints" :key="a.title" class="flex gap-3">
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <component :is="a.icon" class="size-4" />
+              </span>
+              <div>
+                <h3 class="font-semibold">{{ a.title }}</h3>
+                <p class="mt-1 text-sm text-muted-foreground">{{ a.body }}</p>
+              </div>
+            </div>
+          </div>
+          <RouterLink :to="{ name: isAuthenticated ? 'developers' : 'signup' }" class="mt-8 inline-block">
+            <Button variant="outline">
+              {{ isAuthenticated ? 'Create an API key' : 'Get your API key' }}
+              <ArrowRight class="size-4" />
+            </Button>
+          </RouterLink>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border bg-card shadow-sm">
+          <div class="flex items-center gap-2 border-b bg-muted/40 px-4 py-2.5">
+            <span class="size-2.5 rounded-full bg-destructive/40" />
+            <span class="size-2.5 rounded-full bg-warning/50" />
+            <span class="size-2.5 rounded-full bg-success/40" />
+            <span class="ml-2 font-mono text-xs text-muted-foreground">POST /v1/messages</span>
+          </div>
+          <pre class="thin-scroll overflow-x-auto p-4 text-xs leading-relaxed"><code>{{ curlSample }}</code></pre>
+        </div>
+      </div>
+    </section>
+
     <!-- Pricing -->
-    <section id="pricing" class="mx-auto max-w-6xl px-4 py-16">
+    <section id="pricing" class="mx-auto max-w-6xl px-4 py-16 border-t">
       <div class="mx-auto max-w-lg rounded-2xl border bg-card p-8 text-center shadow-sm">
         <h2 class="text-3xl font-semibold tracking-tight">Simple, prepaid pricing</h2>
         <div class="mt-6 flex items-baseline justify-center gap-1">
