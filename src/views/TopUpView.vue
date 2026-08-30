@@ -85,10 +85,24 @@ const amount = computed(() => {
 // Rough guide: how many single-segment SMS this buys, at the live per-segment rate.
 const estSms = computed(() => smsFor(amount.value))
 
+// Top-up bounds come from the backend (/api/sms/billing/status); the store seeds sane
+// defaults so the guard still holds before that answers. The server rejects out-of-range
+// amounts anyway — checking here stops a user paying an OTP round-trip to find out.
+const minTopUp = computed(() => pricing.minTopUp.value)
+const maxTopUp = computed(() => pricing.maxTopUp.value)
+
+const amountError = computed(() => {
+  if (amount.value <= 0) return ''
+  if (amount.value < minTopUp.value) return `Minimum top-up is ${formatCurrency(minTopUp.value)}.`
+  if (amount.value > maxTopUp.value) return `Maximum top-up is ${formatCurrency(maxTopUp.value)}.`
+  return ''
+})
+const amountValid = computed(() => amount.value > 0 && !amountError.value)
+
 const momoValid = computed(() => normalizePhone(momoNumber.value).valid)
 const activeNetwork = computed(() => networks.find((n) => n.id === network.value)!)
-const canPay = computed(() => amount.value > 0 && momoValid.value && !processing.value)
-const canSend = computed(() => amount.value > 0 && momoValid.value && !otpSending.value)
+const canPay = computed(() => amountValid.value && momoValid.value && !processing.value)
+const canSend = computed(() => amountValid.value && momoValid.value && !otpSending.value)
 
 function pick(v: number) {
   selected.value = v
@@ -264,8 +278,10 @@ function again() {
             <label class="text-sm font-medium">Or enter a custom amount</label>
             <div class="relative max-w-xs">
               <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{{ CURRENCY }}</span>
-              <Input v-model="custom" type="number" placeholder="0.00" class="pl-12" />
+              <Input v-model="custom" type="number" :min="minTopUp" placeholder="0.00" class="pl-12" />
             </div>
+            <p v-if="amountError" class="text-xs text-destructive">{{ amountError }}</p>
+            <p v-else class="text-xs text-muted-foreground">Minimum top-up is {{ formatCurrency(minTopUp) }}.</p>
           </div>
 
           <h2 class="mt-6 text-sm font-medium">Mobile money network</h2>
